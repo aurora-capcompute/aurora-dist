@@ -1,0 +1,30 @@
+module github.com/aurora-capcompute/aurora-dist
+
+go 1.26
+
+require (
+	github.com/aurora-capcompute/aurora-capcompute v0.0.0-20260703234354-8dbd1d245b77
+	github.com/aurora-capcompute/aurora-dispatchers v0.0.0-20260703234411-a831b03d6c12
+	github.com/aurora-capcompute/capcompute v0.0.0-20260703234306-8d7e039f9e40
+	github.com/mattn/go-sqlite3 v1.14.24
+)
+
+require (
+	github.com/dylibso/observe-sdk/go v0.0.0-20240828172851-9145d8ad07e1 // indirect
+	github.com/extism/go-pdk v1.1.3 // indirect
+	github.com/extism/go-sdk v1.7.1 // indirect
+	github.com/gobwas/glob v0.2.3 // indirect
+	github.com/ianlancetaylor/demangle v0.0.0-20260505044615-1ff4bf46051f // indirect
+	github.com/openai/openai-go/v3 v3.41.0 // indirect
+	github.com/santhosh-tekuri/jsonschema/v6 v6.0.2 // indirect
+	github.com/tetratelabs/wabin v0.0.0-20230304001439-f6f874872834 // indirect
+	github.com/tetratelabs/wazero v1.12.0 // indirect
+	github.com/tidwall/gjson v1.18.0 // indirect
+	github.com/tidwall/match v1.1.1 // indirect
+	github.com/tidwall/pretty v1.2.1 // indirect
+	github.com/tidwall/sjson v1.2.5 // indirect
+	go.opentelemetry.io/proto/otlp v1.10.0 // indirect
+	golang.org/x/sys v0.46.0 // indirect
+	golang.org/x/text v0.34.0 // indirect
+	google.golang.org/protobuf v1.36.12-0.20260120151049-f2248ac996af // indirect
+)
