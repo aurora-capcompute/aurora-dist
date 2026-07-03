@@ -212,7 +212,10 @@ func (h *handler) sessionEvents(w http.ResponseWriter, r *http.Request) {
 	defer cancel()
 
 	startSSE(w)
-	writeSSE(w, initial.Type, "", initial)
+	// The event name travels in the SSE event field; the data field carries
+	// the payload itself, not a {type,data} envelope (the terminal is the
+	// contract test here — it decodes payloads directly).
+	writeSSE(w, initial.Type, "", initial.Data)
 	flusher.Flush()
 
 	ctx := r.Context()
@@ -224,7 +227,7 @@ func (h *handler) sessionEvents(w http.ResponseWriter, r *http.Request) {
 			if !ok {
 				return
 			}
-			writeSSE(w, event.Type, "", event)
+			writeSSE(w, event.Type, "", event.Data)
 			flusher.Flush()
 		}
 	}
