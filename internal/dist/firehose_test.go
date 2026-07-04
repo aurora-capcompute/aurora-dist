@@ -77,11 +77,14 @@ func TestFirehoseMergesSessionsAndStampsSequence(t *testing.T) {
 	runtime.emit("ses_a", aurora.Event{Type: "process.updated", Data: "a1"})
 	runtime.emit("ses_b", aurora.Event{Type: "task.created", Data: "b1"})
 
+	// Sequences are dense and monotonic; cross-session arrival order is not a
+	// firehose guarantee (each session has its own pump), so assert the set.
 	first, second := recv(t, live), recv(t, live)
 	if first.Seq != 1 || second.Seq != 2 {
 		t.Fatalf("sequences = %d, %d", first.Seq, second.Seq)
 	}
-	if first.SessionID != "ses_a" || second.SessionID != "ses_b" {
+	stamps := map[string]bool{first.SessionID: true, second.SessionID: true}
+	if !stamps["ses_a"] || !stamps["ses_b"] {
 		t.Fatalf("session stamps = %s, %s", first.SessionID, second.SessionID)
 	}
 }
