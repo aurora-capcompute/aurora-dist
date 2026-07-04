@@ -272,7 +272,7 @@ func TestDistributionEndToEnd(t *testing.T) {
 		names = append(names, entry.Syscall.Name)
 	}
 	story := strings.Join(names, " ")
-	for _, want := range []string{"agent.input", "openai.chat", "timer.set", "agent.finish"} {
+	for _, want := range []string{"sys.input", "openai.chat", "timer.set", "sys.output"} {
 		if !strings.Contains(story, want) {
 			t.Fatalf("journal %v is missing %s", names, want)
 		}

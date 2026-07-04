@@ -102,7 +102,7 @@ func grantedNames(tools []aurora.Tool) ([]sys.Capability, error) {
 				add("mcp." + replacer.Replace(settings.ServerID) + "." + replacer.Replace(name))
 			}
 		case "core.log":
-			// aurora.log is runtime protocol, not an external grant.
+			// sys.log is runtime protocol, not an external grant.
 		default:
 			// Unknown types fail manifest validation before the ceiling runs;
 			// refuse here too so the ceiling stays conservative.
