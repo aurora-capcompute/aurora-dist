@@ -2,9 +2,9 @@
 // runtime compiled together with a fixed driver set (builtin router,
 // internet, MCP, memory, timer, openaillm), concrete stores (in-memory or
 // SQLite), and the runtime-adjacent services that must not live in terminals
-// — timer firing, the program registry with its retention query, the tenant
-// event firehose, and the static capability ceiling. One binary, one HTTP+SSE
-// API in front (internal/api).
+// — timer firing, the program directory kept in sync with the runtime by
+// polling, and the static capability ceiling. One binary, one HTTP API in
+// front (internal/api).
 package dist
 
 import (
@@ -15,6 +15,7 @@ import (
 	"log/slog"
 	"path/filepath"
 	"strings"
+	"time"
 
 	"github.com/aurora-capcompute/aurora-capcompute/aurora"
 	"github.com/aurora-capcompute/aurora-dispatchers/mcp"
@@ -53,9 +54,13 @@ type Config struct {
 
 	MaxConcurrentProcesses int
 	MaxResidentProcesses   int
-	// FirehoseRing bounds the replay window of the tenant event firehose
-	// (frames; 0 = 8192).
-	FirehoseRing int
+
+	// TimerReconcileInterval is how often the timer service reconciles its
+	// armed timers against runtime state (0 = 1s).
+	TimerReconcileInterval time.Duration
+	// ProgramReloadInterval is how often the programs directory is re-scanned
+	// into the runtime (0 = 10s).
+	ProgramReloadInterval time.Duration
 
 	Logger *slog.Logger
 }
@@ -66,14 +71,14 @@ type Dist struct {
 	Timers   *timers.Service
 	Programs programs.Dir
 
-	firehose *firehose
-	ceiling  *ceiling
-	closers  []io.Closer
-	logger   *slog.Logger
+	ceiling    *ceiling
+	loopCancel context.CancelFunc
+	closers    []io.Closer
+	logger     *slog.Logger
 }
 
 // New assembles and starts a distribution: stores, driver registry, runtime
-// (restoring persisted sessions), firehose watches, and timer recovery.
+// (restoring persisted sessions), and the timer + program reconcile loops.
 func New(ctx context.Context, cfg Config) (*Dist, error) {
 	logger := cfg.Logger
 	if logger == nil {
@@ -143,36 +148,27 @@ func New(ctx context.Context, cfg Config) (*Dist, error) {
 		return nil, err
 	}
 
+	loopCtx, loopCancel := context.WithCancel(context.Background())
 	d := &Dist{
-		Runtime:  runtime,
-		Timers:   timers.New(runtime, logger),
-		Programs: dir,
-		firehose: newFirehose(runtime, cfg.FirehoseRing),
-		ceiling:  newCeiling(cfg.CapabilityCeiling),
-		closers:  closers,
-		logger:   logger,
+		Runtime:    runtime,
+		Timers:     timers.New(runtime, logger),
+		Programs:   dir,
+		ceiling:    newCeiling(cfg.CapabilityCeiling),
+		loopCancel: loopCancel,
+		closers:    closers,
+		logger:     logger,
 	}
-	// The timer service observes the merged event stream as an internal tap
-	// (never disconnected for lag) and re-arms persisted timers at boot.
-	d.firehose.tap = func(frame Frame) { d.Timers.Observe(frame.Type, frame.Data) }
-	if err := d.firehose.start(); err != nil {
-		_ = d.Close(context.Background())
-		return nil, fmt.Errorf("start firehose: %w", err)
-	}
-	d.Timers.Recover(runtime)
+	// Timers reconcile their armed set against runtime state on a ticker (and
+	// once now, for boot recovery); the programs directory is re-scanned into
+	// the runtime on its own ticker so in-memory programs track the filesystem.
+	d.Timers.Start(loopCtx, cfg.TimerReconcileInterval)
+	d.startProgramReload(loopCtx, cfg.ProgramReloadInterval)
 	return d, nil
 }
 
-// CreateSession creates a session and announces it on the firehose.
+// CreateSession creates a session.
 func (d *Dist) CreateSession(tags map[string]string) (aurora.SessionSnapshot, error) {
-	snapshot, err := d.Runtime.CreateSession(tags)
-	if err != nil {
-		return snapshot, err
-	}
-	if err := d.firehose.sessionCreated(snapshot); err != nil {
-		d.logger.Warn("watch created session", "session_id", snapshot.ID, "error", err)
-	}
-	return snapshot, nil
+	return d.Runtime.CreateSession(tags)
 }
 
 // CreateProcess starts a process on a session after the distribution's own
@@ -185,27 +181,41 @@ func (d *Dist) CreateProcess(sessionID, message string, manifest aurora.Manifest
 	return d.Runtime.CreateProcess(sessionID, message, manifest)
 }
 
-// SubscribeFirehose attaches a tenant-wide event subscriber; see
-// firehose.subscribe for the resume/re-sync contract.
-func (d *Dist) SubscribeFirehose(after uint64) ([]Frame, []aurora.SessionSummary, <-chan Frame, func(), error) {
-	return d.firehose.subscribe(after)
+// startProgramReload re-scans the programs directory into the runtime every
+// interval so the in-memory program set converges to the filesystem. The scan
+// is digest-diffed by SetPrograms — unchanged programs keep running — so an
+// unchanged directory is a cheap no-op. With no directory configured there is
+// nothing to track and the loop is not started.
+func (d *Dist) startProgramReload(ctx context.Context, interval time.Duration) {
+	if strings.TrimSpace(d.Programs.Path) == "" {
+		return
+	}
+	if interval <= 0 {
+		interval = 10 * time.Second
+	}
+	go func() {
+		ticker := time.NewTicker(interval)
+		defer ticker.Stop()
+		for {
+			select {
+			case <-ctx.Done():
+				return
+			case <-ticker.C:
+				if _, err := d.Programs.Reload(ctx, d.Runtime); err != nil {
+					d.logger.Warn("program reload", "error", err)
+				}
+			}
+		}
+	}()
 }
 
-// ReloadPrograms re-scans the programs directory into the runtime.
-func (d *Dist) ReloadPrograms(ctx context.Context) ([]aurora.ProgramArtifact, error) {
-	return d.Programs.Reload(ctx, d.Runtime)
-}
-
-// Retention answers the digest retention query over current process state.
-func (d *Dist) Retention() []programs.Reference {
-	return programs.Retention(d.Runtime)
-}
-
-// Close shuts the distribution down: timers, firehose, runtime (bounded by
-// ctx), then the stores.
+// Close shuts the distribution down: stops the reconcile loops and timers,
+// closes the runtime (bounded by ctx), then the stores.
 func (d *Dist) Close(ctx context.Context) error {
+	if d.loopCancel != nil {
+		d.loopCancel()
+	}
 	d.Timers.StopAll()
-	d.firehose.close()
 	errs := []error{d.Runtime.Close(ctx)}
 	for _, closer := range d.closers {
 		errs = append(errs, closer.Close())

@@ -1,9 +1,8 @@
-// Package api serves the distribution's HTTP+SSE API — the single way into
-// the runtime, versioned /v1 from birth (the resolution_token and session_id
+// Package api serves the distribution's HTTP API — the single way into the
+// runtime, versioned /v1 from birth (the resolution_token and session_id
 // renames were the cautionary tales). It is a thin projection of the runtime
-// surface plus the distribution's own services: the tenant event firehose,
-// the program registry with its retention query, and the capability ceiling
-// enforced at process creation.
+// surface plus the distribution's own gate: the capability ceiling enforced at
+// process creation.
 //
 // There is no principal authentication here by design: the distribution
 // serves one trusted client (a local terminal, or the policy layer once
@@ -17,7 +16,6 @@ import (
 	"errors"
 	"fmt"
 	"net/http"
-	"strconv"
 
 	"github.com/aurora-capcompute/aurora-capcompute/aurora"
 
@@ -29,9 +27,6 @@ func Handler(d *dist.Dist) http.Handler {
 	h := &handler{dist: d}
 	mux := http.NewServeMux()
 
-	// The tenant firehose: one stream for the whole tenant, resumable.
-	mux.HandleFunc("GET /v1/events", h.firehose)
-
 	// Sessions. GET returns the complete session log — session metadata,
 	// history, and every process with its full state, delegation links,
 	// journal across all revisions, and tasks. Every narrower view (the
@@ -40,7 +35,6 @@ func Handler(d *dist.Dist) http.Handler {
 	mux.HandleFunc("GET /v1/sessions", h.listSessions)
 	mux.HandleFunc("POST /v1/sessions", h.createSession)
 	mux.HandleFunc("GET /v1/sessions/{id}", h.getSession)
-	mux.HandleFunc("GET /v1/sessions/{id}/events", h.sessionEvents)
 	mux.HandleFunc("POST /v1/sessions/{id}/processes", h.createProcess)
 
 	// Processes. A single-process snapshot is kept for cheap status polling;
@@ -51,11 +45,6 @@ func Handler(d *dist.Dist) http.Handler {
 
 	// Tasks.
 	mux.HandleFunc("POST /v1/tasks/{id}/resolve", h.resolveTask)
-
-	// Programs.
-	mux.HandleFunc("GET /v1/programs", h.listPrograms)
-	mux.HandleFunc("POST /v1/programs/reload", h.reloadPrograms)
-	mux.HandleFunc("GET /v1/programs/retention", h.programRetention)
 
 	mux.HandleFunc("GET /healthz", func(w http.ResponseWriter, _ *http.Request) {
 		w.WriteHeader(http.StatusOK)
@@ -162,128 +151,6 @@ func (h *handler) resolveTask(w http.ResponseWriter, r *http.Request) {
 	}
 	task, err := h.dist.Runtime.ResolveTask(r.PathValue("id"), req.ResolutionToken, req.Resolution)
 	writeJSON(w, task, err)
-}
-
-// --- programs ---
-
-func (h *handler) listPrograms(w http.ResponseWriter, _ *http.Request) {
-	writeJSON(w, h.dist.Runtime.Programs(), nil)
-}
-
-func (h *handler) reloadPrograms(w http.ResponseWriter, r *http.Request) {
-	artifacts, err := h.dist.ReloadPrograms(r.Context())
-	writeJSON(w, artifacts, err)
-}
-
-func (h *handler) programRetention(w http.ResponseWriter, _ *http.Request) {
-	writeJSON(w, h.dist.Retention(), nil)
-}
-
-// --- SSE ---
-
-// sessionEvents streams one session: the runtime's snapshot event first, then
-// live events, exactly the runtime Subscribe contract.
-func (h *handler) sessionEvents(w http.ResponseWriter, r *http.Request) {
-	flusher, ok := w.(http.Flusher)
-	if !ok {
-		http.Error(w, "streaming unsupported", http.StatusInternalServerError)
-		return
-	}
-	initial, events, cancel, err := h.dist.Runtime.Subscribe(r.PathValue("id"))
-	if err != nil {
-		writeError(w, err)
-		return
-	}
-	defer cancel()
-
-	startSSE(w)
-	// The event name travels in the SSE event field; the data field carries
-	// the payload itself, not a {type,data} envelope (the terminal is the
-	// contract test here — it decodes payloads directly).
-	writeSSE(w, initial.Type, "", initial.Data)
-	flusher.Flush()
-
-	ctx := r.Context()
-	for {
-		select {
-		case <-ctx.Done():
-			return
-		case event, ok := <-events:
-			if !ok {
-				return
-			}
-			writeSSE(w, event.Type, "", event.Data)
-			flusher.Flush()
-		}
-	}
-}
-
-// firehose streams the whole tenant. Resume with Last-Event-ID (or ?after=):
-// a cursor still inside the replay ring continues seamlessly; anything older
-// gets a fresh `snapshot` event (current session summaries) before live
-// frames — at-least-once, duplicates possible, gaps only ever explicit as a
-// new snapshot.
-func (h *handler) firehose(w http.ResponseWriter, r *http.Request) {
-	flusher, ok := w.(http.Flusher)
-	if !ok {
-		http.Error(w, "streaming unsupported", http.StatusInternalServerError)
-		return
-	}
-	after := uint64(0)
-	if raw := r.Header.Get("Last-Event-ID"); raw != "" {
-		after, _ = strconv.ParseUint(raw, 10, 64)
-	} else if raw := r.URL.Query().Get("after"); raw != "" {
-		after, _ = strconv.ParseUint(raw, 10, 64)
-	}
-	replay, snapshot, live, cancel, err := h.dist.SubscribeFirehose(after)
-	if err != nil {
-		writeError(w, err)
-		return
-	}
-	defer cancel()
-
-	startSSE(w)
-	if snapshot != nil {
-		writeSSE(w, "snapshot", "", map[string]any{"sessions": snapshot})
-	}
-	for _, frame := range replay {
-		writeSSE(w, frame.Type, strconv.FormatUint(frame.Seq, 10), frame)
-	}
-	flusher.Flush()
-
-	ctx := r.Context()
-	for {
-		select {
-		case <-ctx.Done():
-			return
-		case frame, ok := <-live:
-			if !ok {
-				// Disconnected for lag (or shutdown); the client re-syncs on
-				// reconnect.
-				return
-			}
-			writeSSE(w, frame.Type, strconv.FormatUint(frame.Seq, 10), frame)
-			flusher.Flush()
-		}
-	}
-}
-
-func startSSE(w http.ResponseWriter) {
-	w.Header().Set("Content-Type", "text/event-stream")
-	w.Header().Set("Cache-Control", "no-cache")
-	w.Header().Set("Connection", "keep-alive")
-	w.WriteHeader(http.StatusOK)
-}
-
-func writeSSE(w http.ResponseWriter, event, id string, payload any) {
-	data, err := json.Marshal(payload)
-	if err != nil {
-		return
-	}
-	if id != "" {
-		_, _ = fmt.Fprintf(w, "id: %s\n", id)
-	}
-	_, _ = fmt.Fprintf(w, "event: %s\ndata: %s\n\n", event, data)
 }
 
 // --- helpers ---

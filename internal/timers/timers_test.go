@@ -11,18 +11,42 @@ import (
 	"github.com/aurora-capcompute/capcompute/sys"
 )
 
-type resolverFunc struct {
-	mu    sync.Mutex
-	calls []string
-	done  chan struct{}
+// fakeRuntime stubs the slice of the runtime the timer service reads and
+// resolves through. It is mutable so a test can change state between reconciles.
+type fakeRuntime struct {
+	mu       sync.Mutex
+	sessions map[string]aurora.SessionSnapshot
+	tasks    map[string][]aurora.TaskSnapshot
+	resolved chan string
 }
 
-func (r *resolverFunc) ResolveTask(taskID, token string, resolution aurora.Resolution) (aurora.TaskSnapshot, error) {
-	r.mu.Lock()
-	r.calls = append(r.calls, taskID+"/"+string(resolution.Decision)+"/"+resolution.Actor)
-	r.mu.Unlock()
+func (f *fakeRuntime) ListSessions() []aurora.SessionSummary {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	var out []aurora.SessionSummary
+	for id, session := range f.sessions {
+		summary := session.SessionSummary
+		summary.ID = id
+		out = append(out, summary)
+	}
+	return out
+}
+
+func (f *fakeRuntime) GetSession(id string) (aurora.SessionSnapshot, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	return f.sessions[id], nil
+}
+
+func (f *fakeRuntime) Tasks(processID string) ([]aurora.TaskSnapshot, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	return f.tasks[processID], nil
+}
+
+func (f *fakeRuntime) ResolveTask(taskID, token string, resolution aurora.Resolution) (aurora.TaskSnapshot, error) {
 	select {
-	case r.done <- struct{}{}:
+	case f.resolved <- taskID + "/" + string(resolution.Decision) + "/" + resolution.Actor:
 	default:
 	}
 	return aurora.TaskSnapshot{}, nil
@@ -41,62 +65,66 @@ func timerTask(id, processID string, createdAt time.Time, seconds int) aurora.Ta
 }
 
 func TestScheduleFiresElapsedTimerImmediately(t *testing.T) {
-	resolver := &resolverFunc{done: make(chan struct{}, 1)}
-	service := New(resolver, slog.Default())
+	fake := &fakeRuntime{resolved: make(chan string, 1)}
+	service := New(fake, slog.Default())
 	defer service.StopAll()
 
-	// Created long ago: the fire time already passed, so recovery fires now.
+	// Created long ago: the fire time already passed, so it fires now.
 	service.Schedule(timerTask("t1", "proc_1", time.Now().Add(-time.Hour), 1))
 	select {
-	case <-resolver.done:
+	case got := <-fake.resolved:
+		if got != "t1/completed/timer" {
+			t.Fatalf("resolved = %q", got)
+		}
 	case <-time.After(2 * time.Second):
 		t.Fatal("elapsed timer did not fire")
 	}
-	resolver.mu.Lock()
-	defer resolver.mu.Unlock()
-	if len(resolver.calls) != 1 || resolver.calls[0] != "t1/completed/timer" {
-		t.Fatalf("calls = %v", resolver.calls)
-	}
 }
 
-func TestObserveArmsAndCancels(t *testing.T) {
-	resolver := &resolverFunc{done: make(chan struct{}, 1)}
-	service := New(resolver, slog.Default())
+func TestReconcileArmsAndDisarms(t *testing.T) {
+	fake := &fakeRuntime{
+		resolved: make(chan string, 1),
+		sessions: map[string]aurora.SessionSnapshot{
+			"ses_1": {Processes: []aurora.ProcessSnapshot{{ID: "proc_1", Status: aurora.ProcessWaitingTask}}},
+		},
+		tasks: map[string][]aurora.TaskSnapshot{
+			"proc_1": {timerTask("t1", "proc_1", time.Now(), 3600)},
+		},
+	}
+	service := New(fake, slog.Default())
 	defer service.StopAll()
 
-	task := timerTask("t1", "proc_1", time.Now(), 3600)
-	service.Observe("task.created", task)
+	// A pending timer task on a parked process is armed.
+	service.Reconcile()
 	if _, ok := service.FireAtFor("proc_1"); !ok {
-		t.Fatal("timer was not armed from task.created")
+		t.Fatal("reconcile did not arm the pending timer task")
 	}
-	// A non-timer task is ignored.
-	other := task
-	other.ID, other.Syscall.Name = "t2", "internet.read"
-	service.Observe("task.created", other)
 
-	// The process finishing cancels its pending timer.
-	service.Observe("process.updated", aurora.ProcessSnapshot{ID: "proc_1", Status: aurora.ProcessStopped})
-	if _, ok := service.FireAtFor("proc_1"); ok {
-		t.Fatal("terminal process kept an armed timer")
+	// A non-timer task on a parked process is ignored.
+	fake.mu.Lock()
+	other := timerTask("t2", "proc_2", time.Now(), 3600)
+	other.Syscall.Name = "internet.read"
+	fake.sessions["ses_2"] = aurora.SessionSnapshot{Processes: []aurora.ProcessSnapshot{{ID: "proc_2", Status: aurora.ProcessWaitingTask}}}
+	fake.tasks["proc_2"] = []aurora.TaskSnapshot{other}
+	fake.mu.Unlock()
+	service.Reconcile()
+	if _, ok := service.FireAtFor("proc_2"); ok {
+		t.Fatal("a non-timer task was armed")
 	}
-}
 
-func TestObserveCancelsResolvedTask(t *testing.T) {
-	service := New(&resolverFunc{done: make(chan struct{}, 1)}, slog.Default())
-	defer service.StopAll()
-
-	task := timerTask("t1", "proc_1", time.Now(), 3600)
-	service.Schedule(task)
-	resolved := task
-	resolved.State = aurora.TaskStateCancelled
-	service.Observe("task.updated", resolved)
+	// Once the process finishes (task gone), reconcile disarms its timer.
+	fake.mu.Lock()
+	fake.tasks["proc_1"] = nil
+	fake.sessions["ses_1"] = aurora.SessionSnapshot{Processes: []aurora.ProcessSnapshot{{ID: "proc_1", Status: aurora.ProcessCompleted}}}
+	fake.mu.Unlock()
+	service.Reconcile()
 	if _, ok := service.FireAtFor("proc_1"); ok {
-		t.Fatal("resolved task kept an armed timer")
+		t.Fatal("reconcile kept a timer for a finished process")
 	}
 }
 
 func TestScheduleIsIdempotentAndSkipsNonPending(t *testing.T) {
-	service := New(&resolverFunc{done: make(chan struct{}, 1)}, slog.Default())
+	service := New(&fakeRuntime{resolved: make(chan string, 1)}, slog.Default())
 	defer service.StopAll()
 
 	task := timerTask("t1", "proc_1", time.Now(), 3600)

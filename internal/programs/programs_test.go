@@ -5,8 +5,6 @@ import (
 	"os"
 	"path/filepath"
 	"testing"
-
-	"github.com/aurora-capcompute/aurora-capcompute/aurora"
 )
 
 func writeWasm(t *testing.T, dir, name string, content []byte) {
@@ -47,57 +45,5 @@ func TestDirToleratesMissingDirectory(t *testing.T) {
 	}
 	if id := d.DefaultID(); id != "" {
 		t.Fatalf("default = %q", id)
-	}
-}
-
-// retentionRuntime stubs the projection inputs of the retention query.
-type retentionRuntime struct {
-	aurora.Runtime
-	artifacts []aurora.ProgramArtifact
-	sessions  map[string]aurora.SessionSnapshot
-}
-
-func (r *retentionRuntime) Programs() []aurora.ProgramArtifact { return r.artifacts }
-
-func (r *retentionRuntime) ListSessions() []aurora.SessionSummary {
-	var out []aurora.SessionSummary
-	for id := range r.sessions {
-		out = append(out, aurora.SessionSummary{ID: id})
-	}
-	return out
-}
-
-func (r *retentionRuntime) GetSession(id string) (aurora.SessionSnapshot, error) {
-	return r.sessions[id], nil
-}
-
-func TestRetentionGatesDecommissioning(t *testing.T) {
-	runtime := &retentionRuntime{
-		artifacts: []aurora.ProgramArtifact{{ID: "agent", Digest: "sha-new"}},
-		sessions: map[string]aurora.SessionSnapshot{
-			"ses_1": {Processes: []aurora.ProcessSnapshot{
-				{ID: "proc_done", Status: aurora.ProcessCompleted, ProgramDigest: "sha-old"},
-				{ID: "proc_parked", Status: aurora.ProcessWaitingTask, ProgramDigest: "sha-old"},
-				{ID: "proc_live", Status: aurora.ProcessRunning, ProgramDigest: "sha-new"},
-			}},
-		},
-	}
-	refs := Retention(runtime)
-	if len(refs) != 2 {
-		t.Fatalf("refs = %+v", refs)
-	}
-	byDigest := map[string]Reference{}
-	for _, ref := range refs {
-		byDigest[ref.Digest] = ref
-	}
-	// The old digest is unregistered but a parked process still pins it: not
-	// decommissionable. The completed process does not count.
-	old := byDigest["sha-old"]
-	if old.Decommissionable || len(old.Processes) != 1 || old.Processes[0] != "proc_parked" || len(old.Programs) != 0 {
-		t.Fatalf("old = %+v", old)
-	}
-	current := byDigest["sha-new"]
-	if current.Decommissionable || len(current.Programs) != 1 || current.Programs[0] != "agent" {
-		t.Fatalf("current = %+v", current)
 	}
 }

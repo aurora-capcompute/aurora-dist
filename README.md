@@ -3,7 +3,7 @@
 The Aurora distribution: **one binary** assembling the
 [`aurora-capcompute`](https://github.com/aurora-capcompute/aurora-capcompute)
 runtime with a compiled-in driver set and concrete stores, exposing the
-runtime over **one HTTP+SSE API** — the single way in, versioned `/v1` from
+runtime over **one HTTP API** — the single way in, versioned `/v1` from
 birth.
 
 The cores stay interfaces-only; this repo is where the choices live:
@@ -17,21 +17,15 @@ The cores stay interfaces-only; this repo is where the choices live:
   hash-chained kernel journal store with a `VerifyJournal` audit path, and
   the tenant-memory KV behind `core.memory`.
 - **Runtime-adjacent services** that must not live in terminals:
-  - **Timer firing** — durable `timer.set` tasks are armed from the event
-    stream and resolved at their deadline; restart recovery re-arms pending
-    timers from persisted state and fires elapsed ones immediately.
-  - **Program registry + retention** — programs load from a directory of
-    `*.wasm` artifacts (id = file name), hot-reload via
-    `POST /v1/programs/reload` (digest-diffed), and
-    `GET /v1/programs/retention` answers the decommissioning gate: which
-    digests are still referenced by non-terminal processes
-    (drain-and-deprecate).
-  - **Tenant event firehose** — `GET /v1/events` merges every session's
-    events into one resumable SSE stream (per-session SSE alone cannot serve
-    a connector). At-least-once: resume inside the replay ring continues
-    seamlessly (`Last-Event-ID` / `?after=`), an older cursor re-syncs from a
-    fresh `snapshot` event; a subscriber that cannot keep up is disconnected
-    rather than silently skipped.
+  - **Timer firing** — durable `timer.set` tasks are armed by reconciling
+    against runtime state on a ticker and resolved at their deadline; the same
+    reconcile runs at boot, re-arming pending timers from persisted state and
+    firing elapsed ones immediately. Fire times are absolute (`created_at +
+    duration`), so discovery latency never shifts a deadline.
+  - **Program directory** — programs load from a directory of `*.wasm`
+    artifacts (id = file name), and the directory is re-scanned into the
+    runtime on a ticker (digest-diffed — unchanged programs keep running), so
+    the in-memory set tracks the filesystem without a manual reload.
   - **Capability ceiling** — an operator-configured list of capability names;
     process creation refuses manifests granting beyond it (`sys.Attenuate` at
     the door, recursing through `core.agent` trees). Defense in depth against
@@ -69,15 +63,12 @@ aurora-dist -addr :8080 -data ./data -programs ./programs
 
 | Method & path | Meaning |
 | --- | --- |
-| `GET /v1/events` | tenant firehose (SSE; resume via `Last-Event-ID`/`?after=`) |
 | `GET /v1/sessions` · `POST /v1/sessions` | list summaries / create |
 | `GET /v1/sessions/{id}` | **the one comprehensive read** — the session log |
-| `GET /v1/sessions/{id}/events` | per-session SSE stream |
 | `POST /v1/sessions/{id}/processes` | start a process: `{message, manifest}` |
 | `GET /v1/processes/{id}` | cheap single-process status poll |
 | `POST /v1/processes/{id}/stop` · `/retry` | steer (`{"mode":"resume"\|"restart"}`) |
 | `POST /v1/tasks/{id}/resolve` | `{resolution_token, resolution:{decision,...}}` |
-| `GET /v1/programs` · `POST /v1/programs/reload` · `GET /v1/programs/retention` | program registry |
 
 **One read, many renderings.** `GET /v1/sessions/{id}` returns the whole
 session log: session metadata, conversation history, and every process with

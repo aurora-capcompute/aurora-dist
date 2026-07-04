@@ -38,12 +38,13 @@ type fileConfig struct {
 		Dir     string `json:"dir,omitempty"`
 		Default string `json:"default,omitempty"`
 	} `json:"programs"`
-	MCPServers        map[string]mcp.ServerConfig `json:"mcp_servers,omitempty"`
-	CapabilityCeiling []string                    `json:"capability_ceiling,omitempty"`
-	InstanceID        string                      `json:"instance_id,omitempty"`
-	MaxConcurrent     int                         `json:"max_concurrent_processes,omitempty"`
-	MaxResident       int                         `json:"max_resident_processes,omitempty"`
-	FirehoseRing      int                         `json:"firehose_ring,omitempty"`
+	MCPServers            map[string]mcp.ServerConfig `json:"mcp_servers,omitempty"`
+	CapabilityCeiling     []string                    `json:"capability_ceiling,omitempty"`
+	InstanceID            string                      `json:"instance_id,omitempty"`
+	MaxConcurrent         int                         `json:"max_concurrent_processes,omitempty"`
+	MaxResident           int                         `json:"max_resident_processes,omitempty"`
+	TimerReconcileSeconds int                         `json:"timer_reconcile_seconds,omitempty"`
+	ProgramReloadSeconds  int                         `json:"program_reload_seconds,omitempty"`
 }
 
 func main() {
@@ -116,7 +117,8 @@ func run() error {
 		InstanceID:             cfg.InstanceID,
 		MaxConcurrentProcesses: cfg.MaxConcurrent,
 		MaxResidentProcesses:   cfg.MaxResident,
-		FirehoseRing:           cfg.FirehoseRing,
+		TimerReconcileInterval: time.Duration(cfg.TimerReconcileSeconds) * time.Second,
+		ProgramReloadInterval:  time.Duration(cfg.ProgramReloadSeconds) * time.Second,
 		Logger:                 logger,
 	})
 	if err != nil {

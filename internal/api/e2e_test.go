@@ -1,15 +1,13 @@
 package api_test
 
 // The distribution end-to-end: the real Rust agent program (built from the
-// sibling aurora-brains checkout) driven through the real HTTP+SSE API, with
-// an OpenAI-compatible stub as cognition. The scripted model first sets a
+// sibling aurora-brains checkout) driven through the real HTTP API, with an
+// OpenAI-compatible stub as cognition. The scripted model first sets a
 // one-second timer — exercising the durable-task path and the distribution's
-// timer firing loop — then finishes. Everything is observed the way a
-// terminal would observe it: REST snapshots, the journal, and the tenant
-// firehose.
+// timer reconcile/firing loop — then finishes. Everything is observed the way
+// a terminal would observe it: REST snapshots and the journal.
 
 import (
-	"bufio"
 	"bytes"
 	"context"
 	"encoding/json"
@@ -148,35 +146,6 @@ func (c *client) do(method, path string, body any, out any) *http.Response {
 	return resp
 }
 
-// collectSSE reads one SSE stream, sending each event name to the channel.
-func collectSSE(t *testing.T, url string, events chan<- string, done <-chan struct{}) {
-	t.Helper()
-	req, err := http.NewRequest(http.MethodGet, url, nil)
-	if err != nil {
-		t.Error(err)
-		return
-	}
-	ctx, cancel := context.WithCancel(context.Background())
-	go func() { <-done; cancel() }()
-	resp, err := http.DefaultClient.Do(req.WithContext(ctx))
-	if err != nil {
-		return
-	}
-	defer resp.Body.Close()
-	scanner := bufio.NewScanner(resp.Body)
-	scanner.Buffer(make([]byte, 1024*1024), 1024*1024)
-	for scanner.Scan() {
-		line := scanner.Text()
-		if strings.HasPrefix(line, "event: ") {
-			select {
-			case events <- strings.TrimPrefix(line, "event: "):
-			case <-ctx.Done():
-				return
-			}
-		}
-	}
-}
-
 func TestDistributionEndToEnd(t *testing.T) {
 	wasm := buildProgram(t)
 
@@ -207,20 +176,6 @@ func TestDistributionEndToEnd(t *testing.T) {
 	server := httptest.NewServer(api.Handler(d))
 	defer server.Close()
 	c := &client{t: t, base: server.URL, http: server.Client()}
-
-	// The program registry loaded the artifact from the directory.
-	var artifacts []aurora.ProgramArtifact
-	c.do(http.MethodGet, "/v1/programs", nil, &artifacts)
-	if len(artifacts) != 1 || artifacts[0].ID != "agent" || artifacts[0].Digest == "" {
-		t.Fatalf("programs = %+v", artifacts)
-	}
-
-	// Attach the tenant firehose before anything happens.
-	firehoseEvents := make(chan string, 256)
-	firehoseDone := make(chan struct{})
-	defer close(firehoseDone)
-	go collectSSE(t, server.URL+"/v1/events", firehoseEvents, firehoseDone)
-	time.Sleep(50 * time.Millisecond) // let the stream attach
 
 	// Create a session, start a process.
 	var session dist.SessionLog
@@ -285,61 +240,6 @@ func TestDistributionEndToEnd(t *testing.T) {
 	}
 	if tasks[0].Resolution.Actor != "timer" {
 		t.Fatalf("timer task resolved by %q", tasks[0].Resolution.Actor)
-	}
-
-	// Retention: the digest is pinned by no non-terminal process now.
-	var retention []struct {
-		Digest           string   `json:"digest"`
-		Programs         []string `json:"programs"`
-		Processes        []string `json:"processes"`
-		Decommissionable bool     `json:"decommissionable"`
-	}
-	c.do(http.MethodGet, "/v1/programs/retention", nil, &retention)
-	if len(retention) != 1 || !retention[0].Decommissionable || retention[0].Digest != artifacts[0].Digest {
-		t.Fatalf("retention = %+v", retention)
-	}
-
-	// The firehose saw the lifecycle: session.created, process updates, the
-	// timer task, journal appends.
-	wanted := map[string]bool{
-		"session.created": false, "process.updated": false,
-		"task.created": false, "journal.appended": false,
-	}
-	seen := map[string]bool{}
-	drain := time.After(5 * time.Second)
-	for {
-		missing := 0
-		for name, ok := range wanted {
-			if !ok && seen[name] {
-				wanted[name] = true
-			} else if !wanted[name] {
-				missing++
-			}
-		}
-		if missing == 0 {
-			break
-		}
-		select {
-		case name := <-firehoseEvents:
-			seen[name] = true
-		case <-drain:
-			t.Fatalf("firehose events seen: %v, want all of %v", seen, wanted)
-		}
-	}
-
-	// Firehose resume: an in-window cursor replays without a snapshot.
-	resp, err := http.Get(server.URL + "/v1/events?after=1")
-	if err != nil {
-		t.Fatal(err)
-	}
-	reader := bufio.NewReader(resp.Body)
-	line, err := reader.ReadString('\n')
-	resp.Body.Close()
-	if err != nil {
-		t.Fatal(err)
-	}
-	if !strings.HasPrefix(line, "id: 2") {
-		t.Fatalf("resume first line = %q, want replay from seq 2", line)
 	}
 }
 

@@ -1,10 +1,8 @@
 // Package programs is the distribution's program registry: it loads wasm
-// program artifacts from a directory, hot-reloads them into the runtime via
-// SetPrograms (digest-diffed — unchanged programs keep running), and answers
-// the retention query that gates decommissioning: which program digests are
-// still referenced by non-terminal processes. Upgrades are drain-and-
-// deprecate — new processes bind the new digest, parked ones drain, and an
-// artifact may be removed only once nothing non-terminal references it.
+// program artifacts from a directory and reconciles them into the runtime via
+// SetPrograms (digest-diffed — unchanged programs keep running). The
+// distribution re-scans the directory on a ticker so the runtime's in-memory
+// program set tracks the filesystem.
 package programs
 
 import (
@@ -90,65 +88,3 @@ func (d Dir) Reload(ctx context.Context, runtime aurora.Runtime) ([]aurora.Progr
 	return runtime.Programs(), nil
 }
 
-// Reference is one digest's retention state: the registered program ids
-// carrying it and the non-terminal processes still pinned to it. A digest is
-// decommissionable exactly when no non-terminal process references it.
-type Reference struct {
-	Digest string `json:"digest"`
-	// Programs lists registered program ids whose current artifact carries
-	// this digest (empty for a digest only historical processes reference).
-	Programs []string `json:"programs,omitempty"`
-	// Processes lists non-terminal process ids pinned to this digest.
-	Processes []string `json:"processes,omitempty"`
-	// Decommissionable is true when no non-terminal process references the
-	// digest — the artifact may be removed without stranding a resume.
-	Decommissionable bool `json:"decommissionable"`
-}
-
-// Retention projects the retention query over current run state: every digest
-// that is registered or referenced, with the non-terminal processes pinning
-// it. Terminal = completed, failed, or stopped; an interrupted or parked
-// process is resumable and keeps its digest alive.
-func Retention(runtime aurora.Runtime) []Reference {
-	refs := map[string]*Reference{}
-	ref := func(digest string) *Reference {
-		if digest == "" {
-			return nil
-		}
-		if r, ok := refs[digest]; ok {
-			return r
-		}
-		r := &Reference{Digest: digest}
-		refs[digest] = r
-		return r
-	}
-	for _, artifact := range runtime.Programs() {
-		if r := ref(artifact.Digest); r != nil {
-			r.Programs = append(r.Programs, artifact.ID)
-		}
-	}
-	for _, summary := range runtime.ListSessions() {
-		session, err := runtime.GetSession(summary.ID)
-		if err != nil {
-			continue
-		}
-		for _, process := range session.Processes {
-			switch process.Status {
-			case aurora.ProcessCompleted, aurora.ProcessFailed, aurora.ProcessStopped:
-				continue
-			}
-			if r := ref(process.ProgramDigest); r != nil {
-				r.Processes = append(r.Processes, process.ID)
-			}
-		}
-	}
-	out := make([]Reference, 0, len(refs))
-	for _, r := range refs {
-		sort.Strings(r.Programs)
-		sort.Strings(r.Processes)
-		r.Decommissionable = len(r.Processes) == 0
-		out = append(out, *r)
-	}
-	sort.Slice(out, func(i, j int) bool { return out[i].Digest < out[j].Digest })
-	return out
-}

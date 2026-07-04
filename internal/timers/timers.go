@@ -1,14 +1,18 @@
 // Package timers fires durable timer.set tasks. It is a distribution-owned
 // service — deliberately not a terminal concern: a timer must fire whether or
-// not any client is attached. When a timer task is created the service arms
-// an in-process timer; when it elapses the task is resolved with Completed,
-// which resumes the waiting process. Fire times are derived from the
-// persisted task (created_at + duration), so they are restart-safe: boot
-// recovery re-arms pending timers, firing immediately for any that already
-// elapsed.
+// not any client is attached. The service reconciles its armed in-process
+// timers against runtime state on a ticker (and once at boot): every pending
+// timer.set task on a parked process gets an armed timer; when it elapses the
+// task is resolved with Completed, which resumes the waiting process. Fire
+// times are derived from the persisted task (created_at + duration), so they
+// are restart-safe — boot recovery re-arms pending timers and fires any that
+// already elapsed. Reading task state directly, rather than observing an event
+// stream, is the seam here: the resolution token needed to fire lives on the
+// task snapshot.
 package timers
 
 import (
+	"context"
 	"encoding/json"
 	"log/slog"
 	"sync"
@@ -18,16 +22,19 @@ import (
 	"github.com/aurora-capcompute/aurora-dispatchers/timer"
 )
 
-// TaskResolver is the slice of the runtime the service needs. aurora.Runtime
-// satisfies it.
-type TaskResolver interface {
+// Runtime is the slice of the runtime the service reads and resolves through.
+// aurora.Runtime satisfies it.
+type Runtime interface {
+	ListSessions() []aurora.SessionSummary
+	GetSession(sessionID string) (aurora.SessionSnapshot, error)
+	Tasks(processID string) ([]aurora.TaskSnapshot, error)
 	ResolveTask(taskID, token string, resolution aurora.Resolution) (aurora.TaskSnapshot, error)
 }
 
 type Service struct {
-	resolver TaskResolver
-	logger   *slog.Logger
-	now      func() time.Time
+	runtime Runtime
+	logger  *slog.Logger
+	now     func() time.Time
 
 	mu     sync.Mutex
 	timers map[string]*scheduledTimer
@@ -39,21 +46,88 @@ type scheduledTimer struct {
 	fireAt    time.Time
 }
 
-func New(resolver TaskResolver, logger *slog.Logger) *Service {
+func New(runtime Runtime, logger *slog.Logger) *Service {
 	if logger == nil {
 		logger = slog.Default()
 	}
 	return &Service{
-		resolver: resolver,
-		logger:   logger,
-		now:      time.Now,
-		timers:   make(map[string]*scheduledTimer),
+		runtime: runtime,
+		logger:  logger,
+		now:     time.Now,
+		timers:  make(map[string]*scheduledTimer),
+	}
+}
+
+// Start runs the reconcile loop: it reconciles once immediately (boot recovery)
+// and then every interval until ctx is cancelled. Firing itself is exact — an
+// in-process time.AfterFunc per armed timer — so the interval only bounds how
+// quickly a newly created or newly resolved timer is discovered, never the fire
+// time (which is absolute: created_at + duration).
+func (s *Service) Start(ctx context.Context, interval time.Duration) {
+	if interval <= 0 {
+		interval = time.Second
+	}
+	s.Reconcile()
+	go func() {
+		ticker := time.NewTicker(interval)
+		defer ticker.Stop()
+		for {
+			select {
+			case <-ctx.Done():
+				return
+			case <-ticker.C:
+				s.Reconcile()
+			}
+		}
+	}()
+}
+
+// Reconcile brings the armed timer set in line with runtime state: it arms a
+// timer for every pending timer.set task on a parked process and disarms any
+// armed timer whose task is no longer pending — resolved, or its process
+// finished. It is idempotent and is the sole arming path, safe to call at boot
+// and on the ticker.
+func (s *Service) Reconcile() {
+	valid := map[string]aurora.TaskSnapshot{}
+	for _, summary := range s.runtime.ListSessions() {
+		session, err := s.runtime.GetSession(summary.ID)
+		if err != nil {
+			continue
+		}
+		for _, process := range session.Processes {
+			if process.Status != aurora.ProcessWaitingTask && process.Status != aurora.ProcessYielded {
+				continue
+			}
+			tasks, err := s.runtime.Tasks(process.ID)
+			if err != nil {
+				s.logger.Warn("timer reconcile: list tasks", "process_id", process.ID, "error", err)
+				continue
+			}
+			for _, task := range tasks {
+				if task.State == aurora.TaskStatePending && IsTimerTask(task) {
+					valid[task.ID] = task
+				}
+			}
+		}
+	}
+	for _, task := range valid {
+		s.Schedule(task)
+	}
+	s.mu.Lock()
+	var stale []string
+	for id := range s.timers {
+		if _, ok := valid[id]; !ok {
+			stale = append(stale, id)
+		}
+	}
+	s.mu.Unlock()
+	for _, id := range stale {
+		s.Cancel(id)
 	}
 }
 
 // Schedule arms a timer for the task. It is idempotent: arming an already-
-// armed task is a no-op, so it is safe to call from both the task.created
-// event and boot recovery.
+// armed task is a no-op, so it is safe to call on every reconcile pass.
 func (s *Service) Schedule(task aurora.TaskSnapshot) {
 	if task.State != aurora.TaskStatePending {
 		return
@@ -103,7 +177,7 @@ func (s *Service) fire(taskID, token, label string) {
 		s.logger.Error("marshal timer result", "task_id", taskID, "error", err)
 		return
 	}
-	if _, err := s.resolver.ResolveTask(taskID, token, aurora.Resolution{
+	if _, err := s.runtime.ResolveTask(taskID, token, aurora.Resolution{
 		Decision: aurora.TaskStateCompleted, Data: data, Actor: "timer",
 	}); err != nil {
 		// The process may have been stopped or the task already resolved; that
@@ -122,20 +196,6 @@ func (s *Service) Cancel(taskID string) {
 	}
 }
 
-// CancelProcess stops every timer armed for a process. Called when a process
-// reaches a terminal state so a pending timer does not fire against a
-// finished process.
-func (s *Service) CancelProcess(processID string) {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	for id, entry := range s.timers {
-		if entry.processID == processID {
-			entry.timer.Stop()
-			delete(s.timers, id)
-		}
-	}
-}
-
 // StopAll stops every armed timer. Called on shutdown.
 func (s *Service) StopAll() {
 	s.mu.Lock()
@@ -143,55 +203,6 @@ func (s *Service) StopAll() {
 	for id, entry := range s.timers {
 		entry.timer.Stop()
 		delete(s.timers, id)
-	}
-}
-
-// Observe reacts to one runtime session event: arming timers as their tasks
-// are created and disarming them as their processes finish. The distribution
-// feeds it every event from its tenant firehose.
-func (s *Service) Observe(eventType string, data any) {
-	switch eventType {
-	case "task.created":
-		if task, ok := data.(aurora.TaskSnapshot); ok && IsTimerTask(task) {
-			s.Schedule(task)
-		}
-	case "task.updated":
-		if task, ok := data.(aurora.TaskSnapshot); ok && task.State != aurora.TaskStatePending {
-			s.Cancel(task.ID)
-		}
-	case "process.updated":
-		if snapshot, ok := data.(aurora.ProcessSnapshot); ok {
-			switch snapshot.Status {
-			case aurora.ProcessCompleted, aurora.ProcessFailed, aurora.ProcessStopped, aurora.ProcessInterrupted:
-				s.CancelProcess(snapshot.ID)
-			}
-		}
-	}
-}
-
-// Recover re-arms pending timer tasks for every process still parked on one —
-// the restart-safety path. Elapsed timers fire immediately.
-func (s *Service) Recover(runtime aurora.Runtime) {
-	for _, summary := range runtime.ListSessions() {
-		session, err := runtime.GetSession(summary.ID)
-		if err != nil {
-			continue
-		}
-		for _, process := range session.Processes {
-			if process.Status != aurora.ProcessWaitingTask && process.Status != aurora.ProcessYielded {
-				continue
-			}
-			tasks, err := runtime.Tasks(process.ID)
-			if err != nil {
-				s.logger.Warn("timer recovery: list tasks", "process_id", process.ID, "error", err)
-				continue
-			}
-			for _, task := range tasks {
-				if task.State == aurora.TaskStatePending && IsTimerTask(task) {
-					s.Schedule(task)
-				}
-			}
-		}
 	}
 }
 
