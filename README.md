@@ -70,13 +70,24 @@ aurora-dist -addr :8080 -data ./data -programs ./programs
 | Method & path | Meaning |
 | --- | --- |
 | `GET /v1/events` | tenant firehose (SSE; resume via `Last-Event-ID`/`?after=`) |
-| `GET /v1/sessions` · `POST /v1/sessions` | list / create sessions |
-| `GET /v1/sessions/{id}` · `/graph` · `/events` (SSE) | session snapshot, graph, per-session stream |
+| `GET /v1/sessions` · `POST /v1/sessions` | list summaries / create |
+| `GET /v1/sessions/{id}` | **the one comprehensive read** — the session log |
+| `GET /v1/sessions/{id}/events` | per-session SSE stream |
 | `POST /v1/sessions/{id}/processes` | start a process: `{message, manifest}` |
-| `GET /v1/processes/{id}` · `/graph` · `/journal` · `/journal/revisions` · `/tasks` | process projections |
+| `GET /v1/processes/{id}` | cheap single-process status poll |
 | `POST /v1/processes/{id}/stop` · `/retry` | steer (`{"mode":"resume"\|"restart"}`) |
 | `POST /v1/tasks/{id}/resolve` | `{resolution_token, resolution:{decision,...}}` |
 | `GET /v1/programs` · `POST /v1/programs/reload` · `GET /v1/programs/retention` | program registry |
+
+**One read, many renderings.** `GET /v1/sessions/{id}` returns the whole
+session log: session metadata, conversation history, and every process with
+its full state, delegation links, complete journal across all revisions
+(each entry carries its `position` and `revision`, so any single revision's
+effective journal is reconstructible), and tasks. The call graph, the current
+journal, a specific revision, a task list — every narrower view is a
+client-side grouping of that one payload. The server owns the fold; the
+terminal owns the rendering. There is no separate `/graph`, `/journal`, or
+`/tasks` endpoint by design.
 
 Manifests arrive per-process from the client and are validated server-side
 (`aurora.ValidateManifest` against the compiled driver set); there is no

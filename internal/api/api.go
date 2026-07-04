@@ -32,20 +32,20 @@ func Handler(d *dist.Dist) http.Handler {
 	// The tenant firehose: one stream for the whole tenant, resumable.
 	mux.HandleFunc("GET /v1/events", h.firehose)
 
-	// Sessions.
+	// Sessions. GET returns the complete session log — session metadata,
+	// history, and every process with its full state, delegation links,
+	// journal across all revisions, and tasks. Every narrower view (the
+	// current journal, one revision, the call graph, a task list) is a
+	// client-side grouping of that one payload.
 	mux.HandleFunc("GET /v1/sessions", h.listSessions)
 	mux.HandleFunc("POST /v1/sessions", h.createSession)
 	mux.HandleFunc("GET /v1/sessions/{id}", h.getSession)
-	mux.HandleFunc("GET /v1/sessions/{id}/graph", h.sessionGraph)
 	mux.HandleFunc("GET /v1/sessions/{id}/events", h.sessionEvents)
 	mux.HandleFunc("POST /v1/sessions/{id}/processes", h.createProcess)
 
-	// Processes.
+	// Processes. A single-process snapshot is kept for cheap status polling;
+	// everything richer lives in the session log.
 	mux.HandleFunc("GET /v1/processes/{id}", h.getProcess)
-	mux.HandleFunc("GET /v1/processes/{id}/graph", h.processGraph)
-	mux.HandleFunc("GET /v1/processes/{id}/journal", h.processJournal)
-	mux.HandleFunc("GET /v1/processes/{id}/journal/revisions", h.processJournalRevisions)
-	mux.HandleFunc("GET /v1/processes/{id}/tasks", h.processTasks)
 	mux.HandleFunc("POST /v1/processes/{id}/stop", h.stopProcess)
 	mux.HandleFunc("POST /v1/processes/{id}/retry", h.retryProcess)
 
@@ -84,17 +84,20 @@ func (h *handler) createSession(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	snapshot, err := h.dist.CreateSession(req.Tags)
-	writeJSON(w, snapshot, err)
+	if err != nil {
+		writeError(w, err)
+		return
+	}
+	// Return the created session in the same shape a GET would, so a client
+	// has one session representation to decode.
+	log, err := h.dist.SessionLog(snapshot.ID)
+	writeJSON(w, log, err)
 }
 
+// getSession returns the complete session log: the one comprehensive read.
 func (h *handler) getSession(w http.ResponseWriter, r *http.Request) {
-	snapshot, err := h.dist.Runtime.GetSession(r.PathValue("id"))
-	writeJSON(w, snapshot, err)
-}
-
-func (h *handler) sessionGraph(w http.ResponseWriter, r *http.Request) {
-	graph, err := h.dist.Runtime.SessionGraph(r.PathValue("id"))
-	writeJSON(w, graph, err)
+	log, err := h.dist.SessionLog(r.PathValue("id"))
+	writeJSON(w, log, err)
 }
 
 // --- processes ---
@@ -120,29 +123,11 @@ func (h *handler) createProcess(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, snapshot, err)
 }
 
+// getProcess is the cheap single-process status poll (no journal or tasks —
+// those live in the session log).
 func (h *handler) getProcess(w http.ResponseWriter, r *http.Request) {
 	snapshot, err := h.dist.Runtime.GetProcess(r.PathValue("id"))
 	writeJSON(w, snapshot, err)
-}
-
-func (h *handler) processGraph(w http.ResponseWriter, r *http.Request) {
-	graph, err := h.dist.Runtime.CallGraph(r.PathValue("id"))
-	writeJSON(w, graph, err)
-}
-
-func (h *handler) processJournal(w http.ResponseWriter, r *http.Request) {
-	entries, err := h.dist.Runtime.Journal(r.PathValue("id"))
-	writeJSON(w, entries, err)
-}
-
-func (h *handler) processJournalRevisions(w http.ResponseWriter, r *http.Request) {
-	revisions, err := h.dist.Runtime.JournalRevisions(r.PathValue("id"))
-	writeJSON(w, revisions, err)
-}
-
-func (h *handler) processTasks(w http.ResponseWriter, r *http.Request) {
-	tasks, err := h.dist.Runtime.Tasks(r.PathValue("id"))
-	writeJSON(w, tasks, err)
 }
 
 func (h *handler) stopProcess(w http.ResponseWriter, r *http.Request) {

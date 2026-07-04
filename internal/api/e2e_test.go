@@ -223,17 +223,18 @@ func TestDistributionEndToEnd(t *testing.T) {
 	time.Sleep(50 * time.Millisecond) // let the stream attach
 
 	// Create a session, start a process.
-	var session aurora.SessionSnapshot
+	var session dist.SessionLog
 	c.do(http.MethodPost, "/v1/sessions", map[string]any{"tags": map[string]string{"origin": "e2e"}}, &session)
-	if !strings.HasPrefix(session.ID, "ses_") {
-		t.Fatalf("session id = %q", session.ID)
+	if !strings.HasPrefix(session.Session.ID, "ses_") {
+		t.Fatalf("session id = %q", session.Session.ID)
 	}
+	sessionID := session.Session.ID
 	var process aurora.ProcessSnapshot
-	c.do(http.MethodPost, "/v1/sessions/"+session.ID+"/processes", map[string]any{
+	c.do(http.MethodPost, "/v1/sessions/"+sessionID+"/processes", map[string]any{
 		"message":  "take a nap, then report back",
 		"manifest": testManifest(llm.URL + "/v1"),
 	}, &process)
-	if !strings.HasPrefix(process.ID, "proc_") || process.SessionID != session.ID {
+	if !strings.HasPrefix(process.ID, "proc_") || process.SessionID != sessionID {
 		t.Fatalf("process = %+v", process)
 	}
 
@@ -257,11 +258,17 @@ func TestDistributionEndToEnd(t *testing.T) {
 		t.Fatalf("answer = %q", process.Answer)
 	}
 
-	// The journal narrates the whole story: input → chat → timer → chat → finish.
-	var journal []aurora.JournalEntry
-	c.do(http.MethodGet, "/v1/processes/"+process.ID+"/journal", nil, &journal)
+	// The one session read carries everything: the folded conversation, and
+	// each process's full journal and tasks — no separate journal/tasks/graph
+	// endpoints. The journal narrates the whole story: input → chat → timer →
+	// chat → finish.
+	c.do(http.MethodGet, "/v1/sessions/"+sessionID, nil, &session)
+	if len(session.Processes) != 1 || session.Session.ActiveProcessID != "" || len(session.History) != 2 {
+		t.Fatalf("session = %+v", session)
+	}
+	logged := session.Processes[0]
 	var names []string
-	for _, entry := range journal {
+	for _, entry := range logged.Entries {
 		names = append(names, entry.Syscall.Name)
 	}
 	story := strings.Join(names, " ")
@@ -272,19 +279,12 @@ func TestDistributionEndToEnd(t *testing.T) {
 	}
 
 	// The timer task resolved as completed by the timer actor.
-	var tasks []aurora.TaskSnapshot
-	c.do(http.MethodGet, "/v1/processes/"+process.ID+"/tasks", nil, &tasks)
+	tasks := logged.Tasks
 	if len(tasks) != 1 || tasks[0].State != aurora.TaskStateExecuted && tasks[0].State != aurora.TaskStateCompleted {
 		t.Fatalf("tasks = %+v", tasks)
 	}
 	if tasks[0].Resolution.Actor != "timer" {
 		t.Fatalf("timer task resolved by %q", tasks[0].Resolution.Actor)
-	}
-
-	// The session snapshot folded the conversation.
-	c.do(http.MethodGet, "/v1/sessions/"+session.ID, nil, &session)
-	if len(session.Processes) != 1 || session.ActiveProcessID != "" || len(session.History) != 2 {
-		t.Fatalf("session = %+v", session)
 	}
 
 	// Retention: the digest is pinned by no non-terminal process now.
@@ -371,10 +371,11 @@ func TestDistributionRestartRecoversTimers(t *testing.T) {
 	server := httptest.NewServer(api.Handler(first))
 	c := &client{t: t, base: server.URL, http: server.Client()}
 
-	var session aurora.SessionSnapshot
+	var session dist.SessionLog
 	c.do(http.MethodPost, "/v1/sessions", nil, &session)
+	sessionID := session.Session.ID
 	var process aurora.ProcessSnapshot
-	c.do(http.MethodPost, "/v1/sessions/"+session.ID+"/processes", map[string]any{
+	c.do(http.MethodPost, "/v1/sessions/"+sessionID+"/processes", map[string]any{
 		"message":  "take a nap, then report back",
 		"manifest": testManifest(llm.URL + "/v1"),
 	}, &process)
@@ -447,7 +448,7 @@ func TestCapabilityCeilingOverHTTP(t *testing.T) {
 	server := httptest.NewServer(api.Handler(d))
 	defer server.Close()
 
-	var session aurora.SessionSnapshot
+	var session dist.SessionLog
 	c := &client{t: t, base: server.URL, http: server.Client()}
 	c.do(http.MethodPost, "/v1/sessions", nil, &session)
 
@@ -457,7 +458,7 @@ func TestCapabilityCeilingOverHTTP(t *testing.T) {
 			{Name: "fetch", Type: "core.internet", Settings: json.RawMessage(`{"permissions":[{"requestType":"GET","domain":"example.com"}]}`)},
 		}},
 	})
-	resp, err := http.Post(server.URL+"/v1/sessions/"+session.ID+"/processes", "application/json", bytes.NewReader(body))
+	resp, err := http.Post(server.URL+"/v1/sessions/"+session.Session.ID+"/processes", "application/json", bytes.NewReader(body))
 	if err != nil {
 		t.Fatal(err)
 	}
