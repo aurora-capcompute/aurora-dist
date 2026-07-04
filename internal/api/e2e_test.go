@@ -21,6 +21,7 @@ import (
 	"path/filepath"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -328,6 +329,118 @@ func TestDistributionRestartRecoversTimers(t *testing.T) {
 		time.Sleep(100 * time.Millisecond)
 	}
 	if process.Answer != "woke up after the nap" {
+		t.Fatalf("answer = %q", process.Answer)
+	}
+}
+
+// A process interrupted mid-run by a host failure is resumed automatically on
+// restart — no human, no manual retry. The scripted model blocks on its first
+// call; the distribution is torn down while the process is running (mid-call),
+// leaving it interrupted (restore folds a running process to interrupted); a
+// fresh instance over the same store re-drives it to completion.
+func TestDistributionResumesInterruptedProcess(t *testing.T) {
+	wasm := buildProgram(t)
+
+	programsDir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(programsDir, "agent.wasm"), wasm, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	dataDir := t.TempDir()
+
+	// The model blocks its first call (so the process is caught mid-run) and,
+	// once re-driven on the new instance, finishes.
+	release := make(chan struct{})
+	var calls int32
+	llm := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if !strings.HasSuffix(r.URL.Path, "/chat/completions") {
+			http.NotFound(w, r)
+			return
+		}
+		if atomic.AddInt32(&calls, 1) == 1 {
+			select {
+			case <-release:
+			case <-r.Context().Done():
+				return
+			}
+		}
+		reply := `{"actions":[{"action":"final","content":{"answer":"resumed after crash"}}]}`
+		payload, _ := json.Marshal(map[string]any{
+			"choices": []any{map[string]any{"message": map[string]any{"content": reply}}},
+		})
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write(payload)
+	}))
+	defer llm.Close()
+
+	config := dist.Config{
+		DataDir:     dataDir,
+		ProgramsDir: programsDir,
+		TaskSecret:  []byte("e2e-secret"),
+		Logger:      slog.New(slog.NewTextHandler(io.Discard, nil)),
+	}
+
+	first, err := dist.New(context.Background(), config)
+	if err != nil {
+		t.Fatal(err)
+	}
+	server := httptest.NewServer(api.Handler(first))
+	c := &client{t: t, base: server.URL, http: server.Client()}
+
+	var session dist.SessionLog
+	c.do(http.MethodPost, "/v1/sessions", nil, &session)
+	var process aurora.ProcessSnapshot
+	c.do(http.MethodPost, "/v1/sessions/"+session.Session.ID+"/processes", map[string]any{
+		"message":  "do the thing",
+		"manifest": testManifest(llm.URL + "/v1"),
+	}, &process)
+
+	// Catch the process actively running (blocked in the model call).
+	deadline := time.Now().Add(30 * time.Second)
+	for process.Status != aurora.ProcessRunning {
+		if time.Now().After(deadline) {
+			t.Fatalf("process never started running; status %s", process.Status)
+		}
+		time.Sleep(20 * time.Millisecond)
+		c.do(http.MethodGet, "/v1/processes/"+process.ID, nil, &process)
+	}
+
+	// Host failure: tear the instance down mid-run, then release the abandoned call.
+	server.Close()
+	closeCtx, closeCancel := context.WithTimeout(context.Background(), 15*time.Second)
+	_ = first.Close(closeCtx)
+	closeCancel()
+	close(release)
+
+	// A fresh instance over the same store resumes the interrupted process with
+	// no intervention.
+	second, err := dist.New(context.Background(), config)
+	if err != nil {
+		t.Fatalf("reassemble: %v", err)
+	}
+	defer func() {
+		ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
+		defer cancel()
+		_ = second.Close(ctx)
+	}()
+	server = httptest.NewServer(api.Handler(second))
+	defer server.Close()
+	c = &client{t: t, base: server.URL, http: server.Client()}
+
+	deadline = time.Now().Add(60 * time.Second)
+	for {
+		c.do(http.MethodGet, "/v1/processes/"+process.ID, nil, &process)
+		if process.Status == aurora.ProcessCompleted {
+			break
+		}
+		if process.Status == aurora.ProcessFailed {
+			t.Fatalf("process failed after restart instead of resuming: %s", process.Error)
+		}
+		if time.Now().After(deadline) {
+			t.Fatalf("interrupted process was not resumed; status %s", process.Status)
+		}
+		time.Sleep(100 * time.Millisecond)
+	}
+	if process.Answer != "resumed after crash" {
 		t.Fatalf("answer = %q", process.Answer)
 	}
 }
