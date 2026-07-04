@@ -62,7 +62,7 @@ func (c *ceiling) check(manifest aurora.Manifest) error {
 //	core.memory                 → name.get, name.put, name.list
 //	core.openaiApi              → the fixed openai.* operations
 //	core.mcp                    → mcp.<server>.<tool> per explicit tools entry
-//	core.log, core.agent        → nothing external (protocol/delegation only)
+//	core.agent                  → nothing external (delegation only)
 func grantedNames(tools []aurora.Tool) ([]sys.Capability, error) {
 	var out []sys.Capability
 	add := func(names ...string) {
@@ -83,7 +83,7 @@ func grantedNames(tools []aurora.Tool) ([]sys.Capability, error) {
 		case "core.memory":
 			add(tool.Name+".get", tool.Name+".put", tool.Name+".list")
 		case openaillm.ToolType:
-			add("openai.chat", "openai.responses", "openai.embeddings", "openai.models.list")
+			add(openaillm.Operations()...)
 		case "core.mcp":
 			var settings struct {
 				ServerID string   `json:"server_id"`
@@ -101,8 +101,6 @@ func grantedNames(tools []aurora.Tool) ([]sys.Capability, error) {
 			for _, name := range settings.Tools {
 				add("mcp." + replacer.Replace(settings.ServerID) + "." + replacer.Replace(name))
 			}
-		case "core.log":
-			// sys.log is runtime protocol, not an external grant.
 		default:
 			// Unknown types fail manifest validation before the ceiling runs;
 			// refuse here too so the ceiling stays conservative.

@@ -290,7 +290,10 @@ func (s *Store) List(ctx context.Context, tenant, prefix string) ([]string, erro
 		if err := rows.Scan(&key); err != nil {
 			return nil, err
 		}
-		if strings.HasPrefix(key, prefix) {
+		// Segment-aware, tolerant of a trailing slash: "notes" and "notes/" both
+		// list the "notes" subtree ("notes/a", …) but never the sibling "notes2".
+		base := strings.TrimSuffix(prefix, "/")
+		if prefix == "" || key == prefix || strings.HasPrefix(key, base+"/") {
 			keys = append(keys, key)
 		}
 	}

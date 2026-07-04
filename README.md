@@ -9,7 +9,7 @@ birth.
 The cores stay interfaces-only; this repo is where the choices live:
 
 - **Drivers** (from `aurora-dispatchers`): the builtin leaf router,
-  `core.internet`, `core.mcp`, `core.memory`, `core.timer`, `core.log`, and
+  `core.internet`, `core.mcp`, `core.memory`, `core.timer`, and
   `core.openaiApi` (the `openaillm` cognition driver).
 - **Stores** (absorbed from the deprecated `aurora-stores`): an in-memory set
   for throwaway runs and a SQLite store — append-only event log (one stream

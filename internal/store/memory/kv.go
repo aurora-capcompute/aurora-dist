@@ -64,11 +64,18 @@ func (s *KV) Put(_ context.Context, tenant, key string, value json.RawMessage, l
 func (s *KV) List(_ context.Context, tenant, prefix string) ([]string, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	marker := kvKey(tenant, prefix)
+	tenantPrefix := tenant + "\x00"
 	var keys []string
 	for id := range s.values {
-		if strings.HasPrefix(id, marker) {
-			keys = append(keys, strings.TrimPrefix(id, tenant+"\x00"))
+		key, ok := strings.CutPrefix(id, tenantPrefix)
+		if !ok {
+			continue
+		}
+		// Segment-aware, tolerant of a trailing slash: "notes" and "notes/" both
+		// list the "notes" subtree ("notes/a", …) but never the sibling "notes2".
+		base := strings.TrimSuffix(prefix, "/")
+		if prefix == "" || key == prefix || strings.HasPrefix(key, base+"/") {
+			keys = append(keys, key)
 		}
 	}
 	sort.Strings(keys)

@@ -1,5 +1,5 @@
 // aurora-dist is the Aurora distribution: one binary assembling the runtime
-// with a compiled-in driver set and stores, exposed over one HTTP+SSE API.
+// with a compiled-in driver set and stores, exposed over one HTTP API.
 //
 //	aurora-dist -addr :8080 -data ./data -programs ./programs [-config dist.json]
 //

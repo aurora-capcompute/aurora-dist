@@ -74,6 +74,27 @@ func TestLeasesExcludeOtherHolders(t *testing.T) {
 	}
 }
 
+func TestKVListDoesNotLeakSiblingSubtree(t *testing.T) {
+	kv := NewKV()
+	ctx := context.Background()
+	for _, key := range []string{"notes/a", "notes/b", "notes2/x", "notesX"} {
+		if _, err := kv.Put(ctx, "t", key, json.RawMessage(`1`), nil, drivermem.PutAny); err != nil {
+			t.Fatal(err)
+		}
+	}
+	// Both the bare and trailing-slash prefix list only the notes subtree — never
+	// the sibling notes2 or the unrelated notesX.
+	for _, prefix := range []string{"notes", "notes/"} {
+		keys, err := kv.List(ctx, "t", prefix)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if len(keys) != 2 || keys[0] != "notes/a" || keys[1] != "notes/b" {
+			t.Fatalf("List(%q) = %v, want [notes/a notes/b]", prefix, keys)
+		}
+	}
+}
+
 func TestKVVersionedCompareAndSet(t *testing.T) {
 	kv := NewKV()
 	ctx := context.Background()

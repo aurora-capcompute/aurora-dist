@@ -157,7 +157,7 @@ func (h *handler) resolveTask(w http.ResponseWriter, r *http.Request) {
 
 func readJSON(w http.ResponseWriter, r *http.Request, out any) bool {
 	if err := json.NewDecoder(r.Body).Decode(out); err != nil {
-		http.Error(w, fmt.Sprintf("invalid request body: %v", err), http.StatusBadRequest)
+		writeError(w, fmt.Errorf("%w: invalid request body: %v", aurora.ErrInvalid, err))
 		return false
 	}
 	return true
@@ -170,27 +170,40 @@ func writeJSON(w http.ResponseWriter, payload any, err error) {
 	}
 	w.Header().Set("Content-Type", "application/json")
 	if encodeErr := json.NewEncoder(w).Encode(payload); encodeErr != nil {
-		http.Error(w, encodeErr.Error(), http.StatusInternalServerError)
+		writeError(w, encodeErr)
 	}
 }
 
-func writeError(w http.ResponseWriter, err error) {
-	http.Error(w, err.Error(), statusFor(err))
+// errorBody is the one error shape the API emits: a human message plus a stable
+// machine-readable code, so a client branches on the class rather than parsing
+// prose.
+type errorBody struct {
+	Error string `json:"error"`
+	Code  string `json:"code"`
 }
 
-func statusFor(err error) int {
+func writeError(w http.ResponseWriter, err error) {
+	status, code := classify(err)
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(status)
+	_ = json.NewEncoder(w).Encode(errorBody{Error: err.Error(), Code: code})
+}
+
+// classify maps a runtime error to its HTTP status and stable code in one place,
+// so the two can never drift.
+func classify(err error) (int, string) {
 	switch {
 	case errors.Is(err, aurora.ErrNotFound), errors.Is(err, aurora.ErrTaskNotFound):
-		return http.StatusNotFound
+		return http.StatusNotFound, "not_found"
 	case errors.Is(err, aurora.ErrInvalid):
-		return http.StatusBadRequest
+		return http.StatusBadRequest, "invalid_args"
 	case errors.Is(err, aurora.ErrConflict), errors.Is(err, aurora.ErrTaskConflict):
-		return http.StatusConflict
+		return http.StatusConflict, "conflict"
 	case errors.Is(err, aurora.ErrTaskUnauthorized):
-		return http.StatusUnauthorized
+		return http.StatusUnauthorized, "unauthorized"
 	case errors.Is(err, aurora.ErrTaskGone):
-		return http.StatusGone
+		return http.StatusGone, "gone"
 	default:
-		return http.StatusInternalServerError
+		return http.StatusInternalServerError, "internal"
 	}
 }
