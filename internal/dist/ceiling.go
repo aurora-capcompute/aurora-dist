@@ -60,7 +60,6 @@ func (c *ceiling) check(manifest aurora.Manifest) error {
 //
 //	core.internet, core.timer   → the tool's local name
 //	core.memory                 → name.get, name.put, name.list
-//	core.hold                   → name.reserve, name.confirm, name.release
 //	core.openaiApi              → the fixed openai.* operations
 //	core.mcp                    → mcp.<server>.<tool> per explicit tools entry
 //	core.agent                  → nothing external (delegation only)
@@ -83,8 +82,6 @@ func grantedNames(tools []aurora.Tool) ([]sys.Capability, error) {
 			add(tool.Name)
 		case "core.memory":
 			add(tool.Name+".get", tool.Name+".put", tool.Name+".list")
-		case "core.hold":
-			add(tool.Name+".reserve", tool.Name+".confirm", tool.Name+".release")
 		case openaillm.ToolType:
 			add(openaillm.Operations()...)
 		case "core.mcp":
