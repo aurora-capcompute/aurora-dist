@@ -61,6 +61,85 @@ func TestEventLogAppendReadDurable(t *testing.T) {
 	}
 }
 
+// Compact must be one transaction — delete + insert applied atomically, the
+// rewrite durable across a reopen, sibling streams untouched, appends
+// continuing at the new head, and a failed compact leaving the old stream
+// exactly as it was (never the delete without the insert).
+func TestEventLogCompactAtomicDurable(t *testing.T) {
+	ctx := context.Background()
+	path := filepath.Join(t.TempDir(), "compact.db")
+	store, err := Open(path)
+	if err != nil {
+		t.Fatalf("open: %v", err)
+	}
+	scope := aurora.LogScope{TenantID: "t", SessionID: "ses1"}
+	other := aurora.LogScope{TenantID: "t", SessionID: "ses2"}
+	for _, kind := range []string{"a", "b", "c", "d"} {
+		if _, err := store.Append(ctx, scope, aurora.LogEvent{Kind: kind, Time: time.Unix(0, 0)}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if _, err := store.Append(ctx, other, aurora.LogEvent{Kind: "x", Time: time.Unix(0, 0)}); err != nil {
+		t.Fatal(err)
+	}
+
+	// A compact that errors mid-flight applies nothing: the old stream survives
+	// whole — the delete and the insert commit together or not at all.
+	cancelled, cancel := context.WithCancel(ctx)
+	cancel()
+	if err := store.Compact(cancelled, scope, []aurora.LogEvent{{Kind: "snapshot", Time: time.Unix(2, 0)}}); err == nil {
+		t.Fatal("compact under a cancelled context must fail")
+	}
+	events, err := store.Read(ctx, scope, 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(events) != 4 || events[0].Kind != "a" || events[3].Seq != 4 {
+		t.Fatalf("failed compact mutated the stream: %+v", events)
+	}
+
+	if err := store.Compact(ctx, scope, []aurora.LogEvent{
+		{Seq: 42, Kind: "snapshot", Proc: "", Time: time.Unix(2, 0), Data: json.RawMessage(`{"s":1}`)},
+		{Kind: "d", Proc: "proc1", Rev: 3, Time: time.Unix(3, 0)},
+	}); err != nil {
+		t.Fatalf("compact: %v", err)
+	}
+	if head, err := store.Append(ctx, scope, aurora.LogEvent{Kind: "e", Time: time.Unix(4, 0)}); err != nil || head != 3 {
+		t.Fatalf("append after compact head = %d, err = %v, want 3", head, err)
+	}
+	if err := store.Close(); err != nil {
+		t.Fatal(err)
+	}
+
+	// The rewrite survives a reopen: renumbered from 1, payloads and process
+	// attribution intact, the sibling stream untouched.
+	reopened, err := Open(path)
+	if err != nil {
+		t.Fatalf("reopen: %v", err)
+	}
+	defer reopened.Close()
+	events, err = reopened.Read(ctx, scope, 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(events) != 3 ||
+		events[0].Seq != 1 || events[0].Kind != "snapshot" || string(events[0].Data) != `{"s":1}` ||
+		events[1].Seq != 2 || events[1].Kind != "d" || events[1].Proc != "proc1" || events[1].Rev != 3 ||
+		events[2].Seq != 3 || events[2].Kind != "e" {
+		t.Fatalf("reopened compacted stream = %+v", events)
+	}
+	if sibling, _ := reopened.Read(ctx, other, 0); len(sibling) != 1 || sibling[0].Kind != "x" {
+		t.Fatalf("sibling stream disturbed: %+v", sibling)
+	}
+	// Compacting to zero events erases the stream durably.
+	if err := reopened.Compact(ctx, scope, nil); err != nil {
+		t.Fatal(err)
+	}
+	if streams, _ := reopened.Streams(ctx, "t"); len(streams) != 1 || streams[0] != other {
+		t.Fatalf("streams after erase = %+v, want only ses2", streams)
+	}
+}
+
 func TestLeasesExclusivity(t *testing.T) {
 	ctx := context.Background()
 	store, err := Open(filepath.Join(t.TempDir(), "leases.db"))

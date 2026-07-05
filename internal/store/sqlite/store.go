@@ -161,6 +161,36 @@ func (s *Store) Read(ctx context.Context, scope aurora.LogScope, after uint64) (
 	return out, rows.Err()
 }
 
+// Compact atomically replaces a stream's entire contents with events,
+// re-assigning contiguous Seq 1..n — the journal-lifecycle rewrite (one
+// snapshot event plus the retained journal tail). Delete and re-insert ride a
+// single transaction, so a crash or error mid-compact leaves the old stream
+// intact and a reader never observes a partial rewrite; subsequent Appends
+// continue at n+1. Zero events erase the stream.
+func (s *Store) Compact(ctx context.Context, scope aurora.LogScope, events []aurora.LogEvent) error {
+	tx, err := s.db.BeginTx(ctx, nil)
+	if err != nil {
+		return err
+	}
+	defer func() { _ = tx.Rollback() }()
+
+	if _, err := tx.ExecContext(ctx,
+		`DELETE FROM events WHERE tenant_id=? AND session_id=?`,
+		scope.TenantID, scope.SessionID); err != nil {
+		return err
+	}
+	for i, ev := range events {
+		if _, err := tx.ExecContext(ctx,
+			`INSERT INTO events(tenant_id,session_id,seq,kind,occurred_at,process_id,revision,data)
+			 VALUES(?,?,?,?,?,?,?,?)`,
+			scope.TenantID, scope.SessionID, uint64(i)+1, ev.Kind,
+			ev.Time.UTC().Format(time.RFC3339Nano), ev.Proc, ev.Rev, []byte(ev.Data)); err != nil {
+			return err
+		}
+	}
+	return tx.Commit()
+}
+
 // Streams lists the session scopes that have events for a tenant.
 func (s *Store) Streams(ctx context.Context, tenantID string) ([]aurora.LogScope, error) {
 	rows, err := s.db.QueryContext(ctx,

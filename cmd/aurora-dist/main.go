@@ -45,6 +45,9 @@ type fileConfig struct {
 	MaxResident           int                         `json:"max_resident_processes,omitempty"`
 	TimerReconcileSeconds int                         `json:"timer_reconcile_seconds,omitempty"`
 	ProgramReloadSeconds  int                         `json:"program_reload_seconds,omitempty"`
+	// CompactSeconds is the session-stream compaction interval (0 = the
+	// 10-minute default; negative disables compaction).
+	CompactSeconds int `json:"compact_seconds,omitempty"`
 }
 
 func main() {
@@ -119,6 +122,7 @@ func run() error {
 		MaxResidentProcesses:   cfg.MaxResident,
 		TimerReconcileInterval: time.Duration(cfg.TimerReconcileSeconds) * time.Second,
 		ProgramReloadInterval:  time.Duration(cfg.ProgramReloadSeconds) * time.Second,
+		CompactInterval:        time.Duration(cfg.CompactSeconds) * time.Second,
 		Logger:                 logger,
 	})
 	if err != nil {

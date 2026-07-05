@@ -64,6 +64,11 @@ type Config struct {
 	// ProgramReloadInterval is how often the programs directory is re-scanned
 	// into the runtime (0 = 10s).
 	ProgramReloadInterval time.Duration
+	// CompactInterval is how often session streams are compacted to
+	// [snapshot + retained journals] (0 = 10m; negative disables). Compaction
+	// bounds the log's growth: finished processes' journals are traded away
+	// while everything needed to resume unfinished work is retained.
+	CompactInterval time.Duration
 
 	Logger *slog.Logger
 }
@@ -176,9 +181,11 @@ func New(ctx context.Context, cfg Config) (*Dist, error) {
 	}
 	// Timers reconcile their armed set against runtime state on a ticker (and
 	// once now, for boot recovery); the programs directory is re-scanned into
-	// the runtime on its own ticker so in-memory programs track the filesystem.
+	// the runtime on its own ticker so in-memory programs track the filesystem;
+	// session streams are periodically compacted so the log stays bounded.
 	d.Timers.Start(loopCtx, cfg.TimerReconcileInterval)
 	d.startProgramReload(loopCtx, cfg.ProgramReloadInterval)
+	d.startCompaction(loopCtx, cfg.CompactInterval)
 	// A host restart is not a process failure: re-drive everything the crash
 	// left mid-flight so recovery needs no human. Parked processes (a timer, an
 	// approval) resume on their own when the wait resolves; only interrupted
@@ -286,6 +293,36 @@ func (d *Dist) startProgramReload(ctx context.Context, interval time.Duration) {
 			case <-ticker.C:
 				if _, err := d.Programs.Reload(ctx, d.Runtime); err != nil {
 					d.logger.Warn("program reload", "error", err)
+				}
+			}
+		}
+	}()
+}
+
+// startCompaction runs the journal-lifecycle loop (ROADMAP #16): every
+// interval it asks the runtime to compact each session's stream to
+// [snapshot + retained journals]. The runtime skips busy sessions and streams
+// the rewrite would not shrink, so an idle deployment ticks for free. A
+// negative interval disables the loop (e.g. to keep full audit streams);
+// zero means the 10-minute default. Errors are logged, never fatal — the next
+// tick retries.
+func (d *Dist) startCompaction(ctx context.Context, interval time.Duration) {
+	if interval < 0 {
+		return
+	}
+	if interval == 0 {
+		interval = 10 * time.Minute
+	}
+	go func() {
+		ticker := time.NewTicker(interval)
+		defer ticker.Stop()
+		for {
+			select {
+			case <-ctx.Done():
+				return
+			case <-ticker.C:
+				if err := d.Runtime.CompactSessions(ctx); err != nil {
+					d.logger.Warn("session compaction", "error", err)
 				}
 			}
 		}

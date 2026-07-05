@@ -78,6 +78,28 @@ func (m *EventLog) Streams(_ context.Context, tenantID string) ([]aurora.LogScop
 	return out, nil
 }
 
+// Compact atomically replaces the stream's entire contents with events,
+// re-assigning contiguous Seq 1..n (the journal-lifecycle rewrite: one
+// snapshot event plus the retained journal tail). The swap happens under one
+// lock hold, so a reader sees the old stream or the new one, never a mix;
+// subsequent Appends continue at n+1. Zero events erase the stream.
+func (m *EventLog) Compact(_ context.Context, scope aurora.LogScope, events []aurora.LogEvent) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	if len(events) == 0 {
+		delete(m.streams, scope)
+		return nil
+	}
+	replaced := make([]aurora.LogEvent, len(events))
+	for i, ev := range events {
+		ev.Seq = uint64(i) + 1
+		ev.Data = append([]byte(nil), ev.Data...)
+		replaced[i] = ev
+	}
+	m.streams[scope] = replaced
+	return nil
+}
+
 // Leases is an in-memory lease table for cross-goroutine coordination in tests
 // and single-process runs.
 type Leases struct {
