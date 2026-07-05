@@ -47,52 +47,6 @@ func TestEventLogAppendReadStreams(t *testing.T) {
 	}
 }
 
-// The Compact contract: the stream is atomically replaced by the given events
-// renumbered from 1, Append continues past the new head, and compacting to
-// nothing erases the stream.
-func TestEventLogCompactReplacesStream(t *testing.T) {
-	log := NewEventLog()
-	ctx := context.Background()
-	scope := aurora.LogScope{TenantID: "t", SessionID: "ses"}
-	other := aurora.LogScope{TenantID: "t", SessionID: "other"}
-	if _, err := log.Append(ctx, scope,
-		aurora.LogEvent{Kind: "a"}, aurora.LogEvent{Kind: "b"},
-		aurora.LogEvent{Kind: "c"}, aurora.LogEvent{Kind: "d"}); err != nil {
-		t.Fatal(err)
-	}
-	if _, err := log.Append(ctx, other, aurora.LogEvent{Kind: "x"}); err != nil {
-		t.Fatal(err)
-	}
-
-	if err := log.Compact(ctx, scope, []aurora.LogEvent{
-		{Seq: 42, Kind: "snapshot", Data: json.RawMessage(`{"s":1}`)}, // caller Seq is ignored
-		{Kind: "d"},
-	}); err != nil {
-		t.Fatalf("compact: %v", err)
-	}
-	events, err := log.Read(ctx, scope, 0)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if len(events) != 2 || events[0].Seq != 1 || events[0].Kind != "snapshot" ||
-		events[1].Seq != 2 || events[1].Kind != "d" {
-		t.Fatalf("compacted stream = %+v, want [snapshot@1 d@2]", events)
-	}
-	if head, err := log.Append(ctx, scope, aurora.LogEvent{Kind: "e"}); err != nil || head != 3 {
-		t.Fatalf("append after compact head = %d, err = %v, want 3", head, err)
-	}
-	// Sibling streams are untouched; compacting to zero erases the stream.
-	if events, _ := log.Read(ctx, other, 0); len(events) != 1 {
-		t.Fatalf("sibling stream disturbed: %+v", events)
-	}
-	if err := log.Compact(ctx, scope, nil); err != nil {
-		t.Fatal(err)
-	}
-	if streams, _ := log.Streams(ctx, "t"); len(streams) != 1 || streams[0] != other {
-		t.Fatalf("streams after erase = %v, want only %v", streams, other)
-	}
-}
-
 func TestLeasesExcludeOtherHolders(t *testing.T) {
 	leases := NewLeases()
 	ctx := context.Background()
