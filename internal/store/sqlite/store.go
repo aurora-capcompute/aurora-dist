@@ -92,10 +92,9 @@ CREATE TABLE IF NOT EXISTS memory_activities (
 	// executed put intent, written in the same transaction as the value it
 	// records, so a re-driven put either finds its row or the write never
 	// happened. Its own table — never rows in memory_values — so records can
-	// never leak through Get/List. created_at bounds the table: GC will
-	// piggyback on journal retention (#16) — an intent older than the oldest
-	// retained journal can never be re-driven, so its record can be dropped
-	// with the journal it served.
+	// never leak through Get/List. created_at is the future GC handle: an
+	// intent older than the oldest journal that could re-drive it is dead
+	// weight, prunable whenever a journal-lifecycle story lands.
 	_, err := s.db.ExecContext(ctx, schema)
 	return err
 }
