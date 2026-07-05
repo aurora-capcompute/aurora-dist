@@ -1,9 +1,10 @@
 // Package sqlite is the distribution's durable store: an append-only event
 // log (one ordered stream per session), a lease table for cross-instance
 // coordination, a hash-chained kernel journal store (journaled.Journal) with
-// a Verify audit path, and the tenant-memory KV behind core.memory. The
-// runtime folds the log into session/process/task projections; there is no
-// per-entity row store.
+// a Verify audit path, and the tenant-memory KV behind core.memory — with the
+// activity memory that makes the driver's intent→completion crash window
+// exactly-once. The runtime folds the log into session/process/task
+// projections; there is no per-entity row store.
 package sqlite
 
 import (
@@ -79,7 +80,22 @@ CREATE TABLE IF NOT EXISTS memory_values (
 	labels    TEXT    NOT NULL DEFAULT '[]',
 	version   INTEGER NOT NULL,
 	PRIMARY KEY (tenant_id, key)
+);
+CREATE TABLE IF NOT EXISTS memory_activities (
+	tenant_id  TEXT    NOT NULL,
+	activity   TEXT    NOT NULL,
+	version    INTEGER NOT NULL,
+	created_at TEXT    NOT NULL,
+	PRIMARY KEY (tenant_id, activity)
 );`
+	// memory_activities is the memory driver's activity memory: one row per
+	// executed put intent, written in the same transaction as the value it
+	// records, so a re-driven put either finds its row or the write never
+	// happened. Its own table — never rows in memory_values — so records can
+	// never leak through Get/List. created_at bounds the table: GC will
+	// piggyback on journal retention (#16) — an intent older than the oldest
+	// retained journal can never be re-driven, so its record can be dropped
+	// with the journal it served.
 	_, err := s.db.ExecContext(ctx, schema)
 	return err
 }
@@ -230,8 +246,12 @@ func (s *Store) Get(ctx context.Context, tenant, key string) (json.RawMessage, [
 }
 
 // Put writes one tenant-memory key under the version expectation (PutAny /
-// PutAbsent / exact version), returning the new version or ErrConflict.
-func (s *Store) Put(ctx context.Context, tenant, key string, value json.RawMessage, labels []string, expect int64) (int64, error) {
+// PutAbsent / exact version), returning the new version or ErrConflict. A
+// non-empty activity key makes the write exactly-once: the dedupe check, the
+// write, and the activity record ride one transaction, so there is no window
+// in which the value is written but the intent unremembered — a re-driven put
+// either replays its recorded version or the write never happened.
+func (s *Store) Put(ctx context.Context, tenant, key string, value json.RawMessage, labels []string, expect int64, activity string) (int64, error) {
 	if labels == nil {
 		labels = []string{}
 	}
@@ -245,6 +265,18 @@ func (s *Store) Put(ctx context.Context, tenant, key string, value json.RawMessa
 	}
 	defer func() { _ = tx.Rollback() }()
 
+	if activity != "" {
+		var recorded int64
+		switch err := tx.QueryRowContext(ctx,
+			`SELECT version FROM memory_activities WHERE tenant_id=? AND activity=?`,
+			tenant, activity).Scan(&recorded); {
+		case err == sql.ErrNoRows:
+		case err != nil:
+			return 0, err
+		default:
+			return recorded, nil // this intent already wrote; replay its outcome
+		}
+	}
 	var version int64
 	exists := true
 	switch err := tx.QueryRowContext(ctx,
@@ -269,10 +301,33 @@ func (s *Store) Put(ctx context.Context, tenant, key string, value json.RawMessa
 		tenant, key, []byte(value), string(rawLbls), next); err != nil {
 		return 0, err
 	}
+	if activity != "" {
+		if _, err := tx.ExecContext(ctx,
+			`INSERT INTO memory_activities(tenant_id,activity,version,created_at) VALUES(?,?,?,?)`,
+			tenant, activity, next, time.Now().UTC().Format(time.RFC3339Nano)); err != nil {
+			return 0, err
+		}
+	}
 	if err := tx.Commit(); err != nil {
 		return 0, err
 	}
 	return next, nil
+}
+
+// Activity reports whether a put under this activity key already executed for
+// the tenant, and the version it recorded.
+func (s *Store) Activity(ctx context.Context, tenant, activity string) (int64, bool, error) {
+	var version int64
+	err := s.db.QueryRowContext(ctx,
+		`SELECT version FROM memory_activities WHERE tenant_id=? AND activity=?`,
+		tenant, activity).Scan(&version)
+	if err == sql.ErrNoRows {
+		return 0, false, nil
+	}
+	if err != nil {
+		return 0, false, err
+	}
+	return version, true, nil
 }
 
 // List returns a tenant's memory keys under a prefix, sorted.

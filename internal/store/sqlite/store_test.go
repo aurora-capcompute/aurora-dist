@@ -104,17 +104,17 @@ func TestMemoryKVDurable(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	v1, err := store.Put(ctx, "t", "notes/a", json.RawMessage(`"one"`), []string{"untrusted_web"}, drivermem.PutAbsent)
+	v1, err := store.Put(ctx, "t", "notes/a", json.RawMessage(`"one"`), []string{"untrusted_web"}, drivermem.PutAbsent, "")
 	if err != nil || v1 != 1 {
 		t.Fatalf("create = %d, %v", v1, err)
 	}
-	if _, err := store.Put(ctx, "t", "notes/a", json.RawMessage(`"x"`), nil, drivermem.PutAbsent); !errors.Is(err, drivermem.ErrConflict) {
+	if _, err := store.Put(ctx, "t", "notes/a", json.RawMessage(`"x"`), nil, drivermem.PutAbsent, ""); !errors.Is(err, drivermem.ErrConflict) {
 		t.Fatalf("create-over-existing = %v, want ErrConflict", err)
 	}
-	if _, err := store.Put(ctx, "t", "notes/a", json.RawMessage(`"x"`), nil, 99); !errors.Is(err, drivermem.ErrConflict) {
+	if _, err := store.Put(ctx, "t", "notes/a", json.RawMessage(`"x"`), nil, 99, ""); !errors.Is(err, drivermem.ErrConflict) {
 		t.Fatalf("stale cas = %v, want ErrConflict", err)
 	}
-	if v2, err := store.Put(ctx, "t", "notes/a", json.RawMessage(`"two"`), []string{"secret"}, v1); err != nil || v2 != 2 {
+	if v2, err := store.Put(ctx, "t", "notes/a", json.RawMessage(`"two"`), []string{"secret"}, v1, ""); err != nil || v2 != 2 {
 		t.Fatalf("cas = %d, %v", v2, err)
 	}
 	if err := store.Close(); err != nil {
@@ -137,5 +137,80 @@ func TestMemoryKVDurable(t *testing.T) {
 	keys, err := reopened.List(ctx, "t", "notes/")
 	if err != nil || len(keys) != 1 || keys[0] != "notes/a" {
 		t.Fatalf("list = %v, %v", keys, err)
+	}
+}
+
+// The durable activity memory is what makes the crash window exactly-once: a
+// put re-driven after a restart replays the version its first execution
+// recorded — in the same transaction as the write — instead of writing again.
+func TestMemoryActivityExactlyOnceAcrossReopen(t *testing.T) {
+	ctx := context.Background()
+	path := filepath.Join(t.TempDir(), "activity.db")
+	store, err := Open(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	v1, err := store.Put(ctx, "t", "notes/a", json.RawMessage(`"one"`), nil, drivermem.PutAbsent, "act-1")
+	if err != nil || v1 != 1 {
+		t.Fatalf("create = %d, %v", v1, err)
+	}
+	// Same process, re-seen key: replay, not conflict, not a second bump.
+	if again, err := store.Put(ctx, "t", "notes/a", json.RawMessage(`"ignored"`), nil, drivermem.PutAbsent, "act-1"); err != nil || again != 1 {
+		t.Fatalf("re-driven create = %d, %v; want the recorded 1", again, err)
+	}
+	// CAS interplay: the recorded write replays; the version is not double-bumped.
+	if v2, err := store.Put(ctx, "t", "notes/a", json.RawMessage(`"two"`), nil, 1, "act-2"); err != nil || v2 != 2 {
+		t.Fatalf("cas = %d, %v", v2, err)
+	}
+	if again, err := store.Put(ctx, "t", "notes/a", json.RawMessage(`"two"`), nil, 1, "act-2"); err != nil || again != 2 {
+		t.Fatalf("re-driven cas = %d, %v; want the recorded 2", again, err)
+	}
+	// A conflict is a non-effect and records nothing.
+	if _, err := store.Put(ctx, "t", "notes/a", json.RawMessage(`"x"`), nil, drivermem.PutAbsent, "act-3"); !errors.Is(err, drivermem.ErrConflict) {
+		t.Fatalf("conflicting put = %v, want ErrConflict", err)
+	}
+	if _, done, _ := store.Activity(ctx, "t", "act-3"); done {
+		t.Fatal("a failed put must not record activity")
+	}
+	if err := store.Close(); err != nil {
+		t.Fatal(err)
+	}
+
+	// Crash-restart: the records survive with the values they guard.
+	reopened, err := Open(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer reopened.Close()
+	if version, done, err := reopened.Activity(ctx, "t", "act-1"); err != nil || !done || version != 1 {
+		t.Fatalf("activity after reopen = %d, %v, %v", version, done, err)
+	}
+	if again, err := reopened.Put(ctx, "t", "notes/a", json.RawMessage(`"ignored"`), nil, drivermem.PutAbsent, "act-1"); err != nil || again != 1 {
+		t.Fatalf("re-driven create after reopen = %d, %v; want the recorded 1", again, err)
+	}
+	value, _, version, ok, err := reopened.Get(ctx, "t", "notes/a")
+	if err != nil || !ok || string(value) != `"two"` || version != 2 {
+		t.Fatalf("get = %s v=%d ok=%v err=%v; deduped puts must not re-write", value, version, ok, err)
+	}
+	// Records are tenant-scoped bookkeeping, invisible to Get/List.
+	if _, done, _ := reopened.Activity(ctx, "other", "act-1"); done {
+		t.Fatal("activity leaked across tenants")
+	}
+	if _, _, _, ok, _ := reopened.Get(ctx, "t", "act-1"); ok {
+		t.Fatal("activity record surfaced through Get")
+	}
+	if keys, _ := reopened.List(ctx, "t", ""); len(keys) != 1 || keys[0] != "notes/a" {
+		t.Fatalf("list = %v, want only notes/a", keys)
+	}
+	// "" bypasses the activity memory: keyless writes stay at-least-once.
+	if v, err := reopened.Put(ctx, "t", "notes/a", json.RawMessage(`"lww"`), nil, drivermem.PutAny, ""); err != nil || v != 3 {
+		t.Fatalf("keyless put = %d, %v", v, err)
+	}
+	if v, err := reopened.Put(ctx, "t", "notes/a", json.RawMessage(`"lww"`), nil, drivermem.PutAny, ""); err != nil || v != 4 {
+		t.Fatalf("second keyless put = %d, %v; \"\" must never dedupe", v, err)
+	}
+	if _, done, _ := reopened.Activity(ctx, "t", ""); done {
+		t.Fatal("empty activity key was recorded")
 	}
 }

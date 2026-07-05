@@ -14,10 +14,18 @@ var _ drivermem.Store = (*KV)(nil)
 
 // KV is an in-memory implementation of the core.memory driver's Store: a
 // versioned, provenance-preserving tenant KV. Values carry the labels they
-// were written under so a later read re-surfaces them as tainted.
+// were written under so a later read re-surfaces them as tainted. The
+// activity memory — the executed-put records that make the driver's
+// intent→completion crash window exactly-once — is a separate map, so Get and
+// List cannot surface it, and shares the store's mutex, so the write and its
+// record are atomic. Like the values it guards it is process-local: it covers
+// re-drives within one host lifetime and just grows, which the in-memory
+// posture (nothing survives a restart anyway) affords; the durable bound
+// lives in the sqlite store.
 type KV struct {
-	mu     sync.Mutex
-	values map[string]kvEntry // tenant + "\x00" + key
+	mu         sync.Mutex
+	values     map[string]kvEntry // tenant + "\x00" + key
+	activities map[string]int64   // tenant + "\x00" + activity key → recorded version
 }
 
 type kvEntry struct {
@@ -26,7 +34,9 @@ type kvEntry struct {
 	version int64
 }
 
-func NewKV() *KV { return &KV{values: make(map[string]kvEntry)} }
+func NewKV() *KV {
+	return &KV{values: make(map[string]kvEntry), activities: make(map[string]int64)}
+}
 
 func kvKey(tenant, key string) string { return tenant + "\x00" + key }
 
@@ -40,9 +50,14 @@ func (s *KV) Get(_ context.Context, tenant, key string) (json.RawMessage, []stri
 	return append(json.RawMessage(nil), entry.value...), append([]string(nil), entry.labels...), entry.version, true, nil
 }
 
-func (s *KV) Put(_ context.Context, tenant, key string, value json.RawMessage, labels []string, expect int64) (int64, error) {
+func (s *KV) Put(_ context.Context, tenant, key string, value json.RawMessage, labels []string, expect int64, activity string) (int64, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
+	if activity != "" {
+		if version, done := s.activities[kvKey(tenant, activity)]; done {
+			return version, nil // this intent already wrote; replay its outcome
+		}
+	}
 	id := kvKey(tenant, key)
 	current, exists := s.values[id]
 	switch {
@@ -58,7 +73,17 @@ func (s *KV) Put(_ context.Context, tenant, key string, value json.RawMessage, l
 		labels:  append([]string(nil), labels...),
 		version: next,
 	}
+	if activity != "" {
+		s.activities[kvKey(tenant, activity)] = next // same mutex hold as the write: atomic
+	}
 	return next, nil
+}
+
+func (s *KV) Activity(_ context.Context, tenant, activity string) (int64, bool, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	version, done := s.activities[kvKey(tenant, activity)]
+	return version, done, nil
 }
 
 func (s *KV) List(_ context.Context, tenant, prefix string) ([]string, error) {

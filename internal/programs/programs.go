@@ -87,4 +87,3 @@ func (d Dir) Reload(ctx context.Context, runtime aurora.Runtime) ([]aurora.Progr
 	}
 	return runtime.Programs(), nil
 }
-
