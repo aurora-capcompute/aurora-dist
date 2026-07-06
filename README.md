@@ -25,10 +25,14 @@ The cores stay interfaces-only; this repo is where the choices live:
   - **Program directory** — programs load from a directory of `*.wasm`
     artifacts (id = file name), and the directory is re-scanned into the
     runtime on a ticker (digest-diffed — unchanged programs keep running), so
-    the in-memory set tracks the filesystem without a manual reload.
+    the in-memory set tracks the filesystem without a manual reload. Processes
+    are immutably bound to the (name, digest) they were created from:
+    replacing a `*.wasm` strands its in-flight processes — they cannot resume
+    or restart under the new bytes, only be killed to settle their effects —
+    and the new artifact serves new processes.
   - **Capability ceiling** — an operator-configured list of capability names;
     process creation refuses manifests granting beyond it (`sys.Attenuate` at
-    the door, recursing through `core.spawn` trees). Defense in depth against
+    the door, recursing through `sys.spawn` trees). Defense in depth against
     a compromised policy layer — the kernel's Validator remains the reference
     monitor.
 
@@ -53,7 +57,6 @@ aurora-dist -addr :8080 -data ./data -programs ./programs
   "tenant_id": "local",
   "data_dir": "./data",
   "programs": {"dir": "./programs", "default": "agent"},
-  "mcp_servers": {"docs": {"command": "docs-mcp"}},
   "capability_ceiling": ["sys.timer", "openai.chat", "openai.responses",
                           "openai.embeddings", "openai.models.list"]
 }
