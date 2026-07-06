@@ -103,7 +103,7 @@ func testManifest(llmBaseURL string) aurora.Manifest {
 	})
 	return aurora.Manifest{
 		Version: aurora.ManifestVersion,
-		Tools: []aurora.Tool{
+		Syscalls: []aurora.Syscall{
 			{Name: "timer.set", Type: "core.timer"},
 			{Name: "llm", Type: "core.openaiApi", Settings: settings, Hidden: true},
 		},
@@ -474,7 +474,7 @@ func TestCapabilityCeilingOverHTTP(t *testing.T) {
 
 	body, _ := json.Marshal(map[string]any{
 		"message": "hi",
-		"manifest": aurora.Manifest{Version: aurora.ManifestVersion, Tools: []aurora.Tool{
+		"manifest": aurora.Manifest{Version: aurora.ManifestVersion, Syscalls: []aurora.Syscall{
 			{Name: "fetch", Type: "core.internet", Settings: json.RawMessage(`{"permissions":[{"requestType":"GET","domain":"example.com"}]}`)},
 		}},
 	})

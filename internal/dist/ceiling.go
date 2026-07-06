@@ -33,8 +33,8 @@ func newCeiling(names []string) *ceiling {
 	return &ceiling{allowed: allowed}
 }
 
-// check derives the capability names a manifest's composition would publish —
-// for every node of the agent tree, since delegated children are granted at
+// check derives the capability names a manifest's grant set would publish —
+// for every node of the spawn tree, since spawned children are granted at
 // the same door — and verifies the whole set against the ceiling. The
 // derivation mirrors what each compiled-in registration publishes; it is
 // deliberately static (no MCP dial, no driver construction), which is why an
@@ -44,7 +44,7 @@ func (c *ceiling) check(manifest aurora.Manifest) error {
 	if c == nil {
 		return nil
 	}
-	requested, err := grantedNames(manifest.Tools)
+	requested, err := grantedNames(manifest.Syscalls)
 	if err != nil {
 		return fmt.Errorf("%w: %v", aurora.ErrInvalid, err)
 	}
@@ -54,48 +54,49 @@ func (c *ceiling) check(manifest aurora.Manifest) error {
 	return nil
 }
 
-// grantedNames statically derives the capability names a tool list publishes,
-// recursing through core.agent sub-trees. Names mirror each registration's
+// grantedNames statically derives the capability names a grant set publishes,
+// recursing through core.spawn subtrees. Names mirror each registration's
 // publishing behavior:
 //
-//	core.internet, core.timer   → the tool's local name
+//	core.internet, core.timer   → the grant's local name
 //	core.memory                 → name.get, name.put, name.list
 //	core.openaiApi              → the fixed openai.* operations
 //	core.mcp                    → mcp.<server>.<tool> per explicit tools entry
-//	core.agent                  → nothing external (delegation only)
-func grantedNames(tools []aurora.Tool) ([]sys.Capability, error) {
+//	core.spawn                  → nothing external (the child is granted at
+//	                              the same door, from its nested syscalls)
+func grantedNames(syscalls []aurora.Syscall) ([]sys.Capability, error) {
 	var out []sys.Capability
 	add := func(names ...string) {
 		for _, name := range names {
 			out = append(out, sys.Capability{Name: name})
 		}
 	}
-	for _, tool := range tools {
-		switch tool.Type {
-		case aurora.AgentToolType:
-			nested, err := grantedNames(tool.Tools)
+	for _, grant := range syscalls {
+		switch grant.Type {
+		case aurora.SpawnType:
+			nested, err := grantedNames(grant.Syscalls)
 			if err != nil {
 				return nil, err
 			}
 			out = append(out, nested...)
 		case "core.internet", "core.timer":
-			add(tool.Name)
+			add(grant.Name)
 		case "core.memory":
-			add(tool.Name+".get", tool.Name+".put", tool.Name+".list")
-		case openaillm.ToolType:
+			add(grant.Name+".get", grant.Name+".put", grant.Name+".list")
+		case openaillm.SyscallType:
 			add(openaillm.Operations()...)
 		case "core.mcp":
 			var settings struct {
 				ServerID string   `json:"server_id"`
-				Tools    []string `json:"tools"`
+				Tools    []string `json:"syscalls"`
 			}
-			if len(tool.Settings) > 0 {
-				if err := json.Unmarshal(tool.Settings, &settings); err != nil {
-					return nil, fmt.Errorf("tool %q settings: %v", tool.Name, err)
+			if len(grant.Settings) > 0 {
+				if err := json.Unmarshal(grant.Settings, &settings); err != nil {
+					return nil, fmt.Errorf("syscall %q settings: %v", grant.Name, err)
 				}
 			}
 			if len(settings.Tools) == 0 {
-				return nil, fmt.Errorf("tool %q: an MCP grant without an explicit tools list cannot be bounded by the capability ceiling", tool.Name)
+				return nil, fmt.Errorf("syscall %q: an MCP grant without an explicit tools list cannot be bounded by the capability ceiling", grant.Name)
 			}
 			replacer := strings.NewReplacer(" ", "_", "/", "_", ":", "_")
 			for _, name := range settings.Tools {
@@ -104,7 +105,7 @@ func grantedNames(tools []aurora.Tool) ([]sys.Capability, error) {
 		default:
 			// Unknown types fail manifest validation before the ceiling runs;
 			// refuse here too so the ceiling stays conservative.
-			return nil, fmt.Errorf("tool %q: type %q is not known to the capability ceiling", tool.Name, tool.Type)
+			return nil, fmt.Errorf("syscall %q: type %q is not known to the capability ceiling", grant.Name, grant.Type)
 		}
 	}
 	return out, nil

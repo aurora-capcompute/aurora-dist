@@ -28,7 +28,7 @@ The cores stay interfaces-only; this repo is where the choices live:
     the in-memory set tracks the filesystem without a manual reload.
   - **Capability ceiling** — an operator-configured list of capability names;
     process creation refuses manifests granting beyond it (`sys.Attenuate` at
-    the door, recursing through `core.agent` trees). Defense in depth against
+    the door, recursing through `core.spawn` trees). Defense in depth against
     a compromised policy layer — the kernel's Validator remains the reference
     monitor.
 

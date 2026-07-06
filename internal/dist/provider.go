@@ -27,8 +27,8 @@ func newProvider(registrations []registry.Registration, services registry.Servic
 	return &provider{registry: registry.New(registrations...), services: services}
 }
 
-func (p *provider) Normalize(toolType string, settings json.RawMessage) (json.RawMessage, error) {
-	return p.registry.Normalize(toolType, settings)
+func (p *provider) Normalize(syscallType string, settings json.RawMessage) (json.RawMessage, error) {
+	return p.registry.Normalize(syscallType, settings)
 }
 
 func (p *provider) NewDispatcher(
@@ -36,11 +36,11 @@ func (p *provider) NewDispatcher(
 	_ aurora.ProcessContext,
 	manifest aurora.Manifest,
 ) (sys.Dispatcher[aurora.ProcessContext], error) {
-	leaf := manifest.LeafTools()
+	leaf := manifest.LeafSyscalls()
 	entries := make([]registry.Entry, 0, len(leaf))
-	for _, tool := range leaf {
+	for _, grant := range leaf {
 		entries = append(entries, registry.Entry{
-			Name: tool.Name, Type: tool.Type, Settings: tool.Settings, Hidden: tool.Hidden,
+			Name: grant.Name, Type: grant.Type, Settings: grant.Settings, Hidden: grant.Hidden,
 		})
 	}
 	config, err := p.registry.Build(ctx, entries, p.services)
