@@ -178,6 +178,13 @@ func TestDistributionEndToEnd(t *testing.T) {
 	defer server.Close()
 	c := &client{t: t, base: server.URL, http: server.Client()}
 
+	// The loaded program set is readable — the terminal's `ls /programs`.
+	var artifacts []aurora.ProgramArtifact
+	c.do(http.MethodGet, "/v1/programs", nil, &artifacts)
+	if len(artifacts) != 1 || artifacts[0].ID != "agent" || artifacts[0].Digest == "" {
+		t.Fatalf("programs = %+v, want the loaded agent artifact with its digest", artifacts)
+	}
+
 	// Create a session, start a process.
 	var session dist.SessionLog
 	c.do(http.MethodPost, "/v1/sessions", map[string]any{"tags": map[string]string{"origin": "e2e"}}, &session)

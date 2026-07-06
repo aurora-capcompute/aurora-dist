@@ -46,6 +46,10 @@ func Handler(d *dist.Dist) http.Handler {
 	// Tasks.
 	mux.HandleFunc("POST /v1/tasks/{id}/resolve", h.resolveTask)
 
+	// Programs. Read-only: the loaded artifact set — the set itself is
+	// reconciled from the programs directory by the distribution's poller.
+	mux.HandleFunc("GET /v1/programs", h.listPrograms)
+
 	mux.HandleFunc("GET /healthz", func(w http.ResponseWriter, _ *http.Request) {
 		w.WriteHeader(http.StatusOK)
 		_, _ = w.Write([]byte("ok"))
@@ -61,6 +65,10 @@ type handler struct {
 
 func (h *handler) listSessions(w http.ResponseWriter, _ *http.Request) {
 	writeJSON(w, h.dist.Runtime.ListSessions(), nil)
+}
+
+func (h *handler) listPrograms(w http.ResponseWriter, _ *http.Request) {
+	writeJSON(w, h.dist.Runtime.Programs(), nil)
 }
 
 type createSessionRequest struct {

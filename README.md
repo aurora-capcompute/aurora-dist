@@ -69,6 +69,7 @@ aurora-dist -addr :8080 -data ./data -programs ./programs
 | `GET /v1/processes/{id}` | cheap single-process status poll |
 | `POST /v1/processes/{id}/stop` · `/retry` | steer (`{"mode":"resume"\|"restart"}`) |
 | `POST /v1/tasks/{id}/resolve` | `{resolution_token, resolution:{decision,...}}` |
+| `GET /v1/programs` | the loaded program artifacts (read-only) |
 
 **One read, many renderings.** `GET /v1/sessions/{id}` returns the whole
 session log: session metadata, conversation history, and every process with
