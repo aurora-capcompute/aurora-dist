@@ -72,7 +72,7 @@ func buildProgram(t *testing.T) []byte {
 }
 
 // scriptedLLM is an OpenAI-compatible chat stub: until it has seen a timer
-// observation it asks for timer.set; afterwards it finishes.
+// observation it asks for sys.timer; afterwards it finishes.
 func scriptedLLM(t *testing.T) *httptest.Server {
 	t.Helper()
 	return httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -81,7 +81,7 @@ func scriptedLLM(t *testing.T) *httptest.Server {
 			return
 		}
 		body, _ := io.ReadAll(r.Body)
-		reply := `{"actions":[{"action":"timer.set","content":{"duration_seconds":1,"label":"nap"}}]}`
+		reply := `{"actions":[{"action":"sys.timer","content":{"duration_seconds":1,"label":"nap"}}]}`
 		if bytes.Contains(body, []byte(`fired`)) {
 			reply = `{"actions":[{"action":"final","content":{"answer":"woke up after the nap"}}]}`
 		}
@@ -104,7 +104,7 @@ func testManifest(llmBaseURL string) aurora.Manifest {
 	return aurora.Manifest{
 		Version: aurora.ManifestVersion,
 		Syscalls: []aurora.Syscall{
-			{Syscall: "core.timer"},
+			{Syscall: "sys.timer"},
 			{Syscall: "core.openaiApi", Settings: settings, Hidden: true},
 		},
 	}
@@ -235,7 +235,7 @@ func TestDistributionEndToEnd(t *testing.T) {
 		names = append(names, entry.Syscall.Name)
 	}
 	story := strings.Join(names, " ")
-	for _, want := range []string{"sys.input", "openai.chat", "timer.set", "sys.output"} {
+	for _, want := range []string{"sys.input", "openai.chat", "sys.timer", "sys.output"} {
 		if !strings.Contains(story, want) {
 			t.Fatalf("journal %v is missing %s", names, want)
 		}
@@ -458,7 +458,7 @@ func TestCapabilityCeilingOverHTTP(t *testing.T) {
 	ctx := context.Background()
 	d, err := dist.New(ctx, dist.Config{
 		TaskSecret:        []byte("e2e-secret"),
-		CapabilityCeiling: []string{"timer.set"},
+		CapabilityCeiling: []string{"sys.timer"},
 		Logger:            slog.New(slog.NewTextHandler(io.Discard, nil)),
 	})
 	if err != nil {

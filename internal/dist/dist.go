@@ -1,6 +1,6 @@
 // Package dist assembles the Aurora distribution: the aurora-capcompute
 // runtime compiled together with a fixed driver set (builtin router,
-// internet, MCP, memory, timer, openaillm), concrete stores (in-memory or
+// internet, memory, openaillm), concrete stores (in-memory or
 // SQLite), and the runtime-adjacent services that must not live in terminals
 // — timer firing, the program directory kept in sync with the runtime by
 // polling, and the static capability ceiling. One binary, one HTTP API in
@@ -21,7 +21,6 @@ import (
 	"time"
 
 	"github.com/aurora-capcompute/aurora-capcompute/aurora"
-	"github.com/aurora-capcompute/aurora-dispatchers/mcp"
 	drivermem "github.com/aurora-capcompute/aurora-dispatchers/memory"
 	"github.com/aurora-capcompute/aurora-dispatchers/openaillm"
 	"github.com/aurora-capcompute/aurora-dispatchers/registry"
@@ -44,8 +43,6 @@ type Config struct {
 	// optionally names the default program id.
 	ProgramsDir    string
 	DefaultProgram string
-	// MCPServers registers stdio MCP servers by id for core.mcp grants.
-	MCPServers map[string]mcp.ServerConfig
 	// CapabilityCeiling lists every capability name this deployment may
 	// grant; empty means unrestricted. CreateProcess refuses manifests
 	// granting beyond it.
@@ -111,21 +108,11 @@ func New(ctx context.Context, cfg Config) (*Dist, error) {
 	if tenant == "" {
 		tenant = aurora.DefaultTenantID
 	}
-	servers := make(map[string]mcp.ServerConfig, len(cfg.MCPServers))
-	for id, server := range cfg.MCPServers {
-		if strings.TrimSpace(server.ID) == "" {
-			server.ID = id
-		}
-		servers[id] = server
-	}
 	provider := newProvider([]registry.Registration{
 		registry.InternetRegistration{},
-		registry.MCPRegistration{},
-		registry.TimerRegistration{},
 		registry.MemoryRegistration{},
 		openaillm.Registration{},
 	}, registry.Services{
-		MCPServers:  servers,
 		Tenant:      tenant,
 		MemoryStore: kv,
 	})

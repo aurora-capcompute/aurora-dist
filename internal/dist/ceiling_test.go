@@ -21,11 +21,11 @@ func TestCeilingNilAllowsEverything(t *testing.T) {
 }
 
 func TestCeilingAttenuatesGrants(t *testing.T) {
-	c := newCeiling([]string{"internet.read", "timer.set", "memory.get", "memory.put", "memory.list"})
+	c := newCeiling([]string{"internet.read", "sys.timer", "memory.get", "memory.put", "memory.list"})
 
 	ok := manifestWith(
 		aurora.Syscall{Syscall: "core.internet"},
-		aurora.Syscall{Syscall: "core.timer"},
+		aurora.Syscall{Syscall: "sys.timer"},
 		aurora.Syscall{Syscall: "core.memory"},
 	)
 	if err := c.check(ok); err != nil {
@@ -33,7 +33,7 @@ func TestCeilingAttenuatesGrants(t *testing.T) {
 	}
 
 	over := manifestWith(aurora.Syscall{Syscall: "core.internet"})
-	err := newCeiling([]string{"timer.set"}).check(over)
+	err := newCeiling([]string{"sys.timer"}).check(over)
 	if err == nil || !errors.Is(err, aurora.ErrInvalid) {
 		t.Fatalf("beyond ceiling = %v, want ErrInvalid", err)
 	}
@@ -66,20 +66,12 @@ func TestCeilingCoversFixedOpenAIOperations(t *testing.T) {
 	}
 }
 
-func TestCeilingRefusesOpenEndedMCP(t *testing.T) {
-	c := newCeiling([]string{"mcp.docs.search"})
-	explicit := manifestWith(aurora.Syscall{
-		Syscall:  "core.mcp",
-		Settings: json.RawMessage(`{"server_id":"docs","tools":["search"]}`),
-	})
-	if err := c.check(explicit); err != nil {
-		t.Fatalf("explicit MCP tools rejected: %v", err)
-	}
-	open := manifestWith(aurora.Syscall{
-		Syscall:  "core.mcp",
-		Settings: json.RawMessage(`{"server_id":"docs"}`),
-	})
-	if err := c.check(open); err == nil {
-		t.Fatal("an open-ended MCP grant cannot be bounded and must be refused")
+// MCP is dropped: its grants fall to the unknown-syscall refusal, keeping
+// the ceiling conservative.
+func TestCeilingRefusesUnknownSyscalls(t *testing.T) {
+	c := newCeiling([]string{"sys.timer"})
+	if err := c.check(manifestWith(aurora.Syscall{Syscall: "core.mcp",
+		Settings: json.RawMessage(`{"server_id":"docs"}`)})); err == nil {
+		t.Fatal("an unknown syscall must be refused by the ceiling")
 	}
 }

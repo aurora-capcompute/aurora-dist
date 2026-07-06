@@ -9,7 +9,7 @@ birth.
 The cores stay interfaces-only; this repo is where the choices live:
 
 - **Drivers** (from `aurora-dispatchers`): the builtin leaf router,
-  `core.internet`, `core.mcp`, `core.memory`, `core.timer`, and
+  `core.internet`, `core.memory`, `sys.spawn`, `sys.timer`, and
   `core.openaiApi` (the `openaillm` cognition driver).
 - **Stores** (absorbed from the deprecated `aurora-stores`): an in-memory set
   for throwaway runs and a SQLite store — append-only event log (one stream
@@ -17,7 +17,7 @@ The cores stay interfaces-only; this repo is where the choices live:
   hash-chained kernel journal store with a `VerifyJournal` audit path, and
   the tenant-memory KV behind `core.memory`.
 - **Runtime-adjacent services** that must not live in terminals:
-  - **Timer firing** — durable `timer.set` tasks are armed by reconciling
+  - **Timer firing** — durable `sys.timer` tasks are armed by reconciling
     against runtime state on a ticker and resolved at their deadline; the same
     reconcile runs at boot, re-arming pending timers from persisted state and
     firing elapsed ones immediately. Fire times are absolute (`created_at +
@@ -54,7 +54,7 @@ aurora-dist -addr :8080 -data ./data -programs ./programs
   "data_dir": "./data",
   "programs": {"dir": "./programs", "default": "agent"},
   "mcp_servers": {"docs": {"command": "docs-mcp"}},
-  "capability_ceiling": ["timer.set", "openai.chat", "openai.responses",
+  "capability_ceiling": ["sys.timer", "openai.chat", "openai.responses",
                           "openai.embeddings", "openai.models.list"]
 }
 ```

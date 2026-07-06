@@ -60,7 +60,7 @@ func timerTask(id, processID string, createdAt time.Time, seconds int) aurora.Ta
 		State:           aurora.TaskStatePending,
 		CreatedAt:       createdAt,
 		ResolutionToken: "tok-" + id,
-		Syscall:         sys.Syscall{Abi: sys.ABIVersion, Name: "timer.set", Args: args},
+		Syscall:         sys.Syscall{Abi: sys.ABIVersion, Name: sys.SyscallTimer, Args: args},
 	}
 }
 

@@ -21,8 +21,6 @@ import (
 	"syscall"
 	"time"
 
-	"github.com/aurora-capcompute/aurora-dispatchers/mcp"
-
 	"github.com/aurora-capcompute/aurora-dist/internal/dist"
 	"github.com/aurora-capcompute/aurora-dist/internal/dist/api"
 )
@@ -38,13 +36,12 @@ type fileConfig struct {
 		Dir     string `json:"dir,omitempty"`
 		Default string `json:"default,omitempty"`
 	} `json:"programs"`
-	MCPServers            map[string]mcp.ServerConfig `json:"mcp_servers,omitempty"`
-	CapabilityCeiling     []string                    `json:"capability_ceiling,omitempty"`
-	InstanceID            string                      `json:"instance_id,omitempty"`
-	MaxConcurrent         int                         `json:"max_concurrent_processes,omitempty"`
-	MaxResident           int                         `json:"max_resident_processes,omitempty"`
-	TimerReconcileSeconds int                         `json:"timer_reconcile_seconds,omitempty"`
-	ProgramReloadSeconds  int                         `json:"program_reload_seconds,omitempty"`
+	CapabilityCeiling     []string `json:"capability_ceiling,omitempty"`
+	InstanceID            string   `json:"instance_id,omitempty"`
+	MaxConcurrent         int      `json:"max_concurrent_processes,omitempty"`
+	MaxResident           int      `json:"max_resident_processes,omitempty"`
+	TimerReconcileSeconds int      `json:"timer_reconcile_seconds,omitempty"`
+	ProgramReloadSeconds  int      `json:"program_reload_seconds,omitempty"`
 }
 
 func main() {
@@ -111,7 +108,6 @@ func run() error {
 		DataDir:                pick(*dataDir, cfg.DataDir, ""),
 		ProgramsDir:            pick(*programsDir, cfg.Programs.Dir, ""),
 		DefaultProgram:         pick(*defaultProg, cfg.Programs.Default, ""),
-		MCPServers:             cfg.MCPServers,
 		CapabilityCeiling:      cfg.CapabilityCeiling,
 		TaskSecret:             taskSecret,
 		InstanceID:             cfg.InstanceID,

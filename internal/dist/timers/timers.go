@@ -1,8 +1,8 @@
-// Package timers fires durable timer.set tasks. It is a distribution-owned
+// Package timers fires durable sys.timer tasks. It is a distribution-owned
 // service — deliberately not a terminal concern: a timer must fire whether or
 // not any client is attached. The service reconciles its armed in-process
 // timers against runtime state on a ticker (and once at boot): every pending
-// timer.set task on a parked process gets an armed timer; when it elapses the
+// sys.timer task on a parked process gets an armed timer; when it elapses the
 // task is resolved with Completed, which resumes the waiting process. Fire
 // times are derived from the persisted task (created_at + duration), so they
 // are restart-safe — boot recovery re-arms pending timers and fires any that
@@ -19,7 +19,6 @@ import (
 	"time"
 
 	"github.com/aurora-capcompute/aurora-capcompute/aurora"
-	"github.com/aurora-capcompute/aurora-dispatchers/timer"
 )
 
 // Runtime is the slice of the runtime the service reads and resolves through.
@@ -83,7 +82,7 @@ func (s *Service) Start(ctx context.Context, interval time.Duration) {
 }
 
 // Reconcile brings the armed timer set in line with runtime state: it arms a
-// timer for every pending timer.set task on a parked process and disarms any
+// timer for every pending sys.timer task on a parked process and disarms any
 // armed timer whose task is no longer pending — resolved, or its process
 // finished. It is idempotent and is the sole arming path, safe to call at boot
 // and on the ticker.
@@ -206,9 +205,9 @@ func (s *Service) StopAll() {
 	}
 }
 
-// IsTimerTask reports whether the task is a timer.set call.
+// IsTimerTask reports whether the task is a sys.timer call.
 func IsTimerTask(task aurora.TaskSnapshot) bool {
-	return task.Syscall.Name == timer.Capability
+	return task.Syscall.Name == aurora.TimerSyscall
 }
 
 // FireAt derives the absolute fire time and label from a timer task. It
@@ -217,7 +216,10 @@ func FireAt(task aurora.TaskSnapshot) (time.Time, string, bool) {
 	if !IsTimerTask(task) {
 		return time.Time{}, "", false
 	}
-	var request timer.SetRequest
+	var request struct {
+		DurationSeconds int64  `json:"duration_seconds"`
+		Label           string `json:"label,omitempty"`
+	}
 	if err := json.Unmarshal(task.Syscall.Args, &request); err != nil || request.DurationSeconds <= 0 {
 		return time.Time{}, "", false
 	}

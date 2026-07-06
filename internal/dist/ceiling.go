@@ -1,8 +1,6 @@
 package dist
 
 import (
-	"encoding/json"
-	"errors"
 	"fmt"
 	"strings"
 
@@ -10,7 +8,6 @@ import (
 	"github.com/aurora-capcompute/aurora-dispatchers/internet"
 	"github.com/aurora-capcompute/aurora-dispatchers/memory"
 	"github.com/aurora-capcompute/aurora-dispatchers/openaillm"
-	"github.com/aurora-capcompute/aurora-dispatchers/timer"
 	"github.com/aurora-capcompute/capcompute/sys"
 )
 
@@ -59,15 +56,14 @@ func (c *ceiling) check(manifest aurora.Manifest) error {
 }
 
 // grantedNames statically derives the capability names a grant set publishes,
-// recursing through core.spawn subtrees. Names mirror each registration's
+// recursing through sys.spawn subtrees. Names mirror each registration's
 // canonical publishing behavior:
 //
-//	core.timer                  → timer.set
+//	sys.timer                   → sys.timer (the runtime's own)
 //	core.internet               → internet.read
 //	core.memory                 → memory.get, memory.put, memory.list
 //	core.openaiApi              → the fixed openai.* operations
-//	core.mcp                    → mcp.<server>.<tool> per explicit tools entry
-//	core.spawn                  → nothing external (each spawnable program is
+//	sys.spawn                   → nothing external (each spawnable program is
 //	                              granted at the same door, recursively)
 func grantedNames(syscalls []aurora.Syscall) ([]sys.Capability, error) {
 	var out []sys.Capability
@@ -86,31 +82,14 @@ func grantedNames(syscalls []aurora.Syscall) ([]sys.Capability, error) {
 				}
 				out = append(out, nested...)
 			}
-		case "core.timer":
-			add(timer.Capability)
+		case aurora.TimerSyscall:
+			add(aurora.TimerSyscall)
 		case "core.internet":
 			add(internet.Capability)
 		case "core.memory":
 			add(memory.Capability+".get", memory.Capability+".put", memory.Capability+".list")
 		case openaillm.SyscallType:
 			add(openaillm.Operations()...)
-		case "core.mcp":
-			var settings struct {
-				ServerID string   `json:"server_id"`
-				Tools    []string `json:"tools"`
-			}
-			if len(grant.Settings) > 0 {
-				if err := json.Unmarshal(grant.Settings, &settings); err != nil {
-					return nil, fmt.Errorf("syscall %q settings: %v", grant.Syscall, err)
-				}
-			}
-			if len(settings.Tools) == 0 {
-				return nil, errors.New("an MCP grant without an explicit tools list cannot be bounded by the capability ceiling")
-			}
-			replacer := strings.NewReplacer(" ", "_", "/", "_", ":", "_")
-			for _, name := range settings.Tools {
-				add("mcp." + replacer.Replace(settings.ServerID) + "." + replacer.Replace(name))
-			}
 		default:
 			// Unknown syscalls fail manifest validation before the ceiling
 			// runs; refuse here too so the ceiling stays conservative.
