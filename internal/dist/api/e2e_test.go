@@ -27,8 +27,8 @@ import (
 
 	"github.com/aurora-capcompute/aurora-capcompute/aurora"
 
-	"github.com/aurora-capcompute/aurora-dist/internal/api"
 	"github.com/aurora-capcompute/aurora-dist/internal/dist"
+	"github.com/aurora-capcompute/aurora-dist/internal/dist/api"
 )
 
 var (
@@ -52,7 +52,7 @@ func buildProgram(t *testing.T) []byte {
 			"--target", "wasm32-wasip1",
 			"-p", "agent-brain",
 		)
-		cmd.Dir = "../../../aurora-brains"
+		cmd.Dir = "../../../../aurora-brains"
 		if out, err := cmd.CombinedOutput(); err != nil {
 			programError = fmt.Errorf("build program: %v\n%s", err, out)
 			return

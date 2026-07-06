@@ -23,8 +23,8 @@ import (
 
 	"github.com/aurora-capcompute/aurora-dispatchers/mcp"
 
-	"github.com/aurora-capcompute/aurora-dist/internal/api"
 	"github.com/aurora-capcompute/aurora-dist/internal/dist"
+	"github.com/aurora-capcompute/aurora-dist/internal/dist/api"
 )
 
 var version = "dev"

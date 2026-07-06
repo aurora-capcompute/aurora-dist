@@ -26,10 +26,10 @@ import (
 	"github.com/aurora-capcompute/aurora-dispatchers/openaillm"
 	"github.com/aurora-capcompute/aurora-dispatchers/registry"
 
-	"github.com/aurora-capcompute/aurora-dist/internal/programs"
-	"github.com/aurora-capcompute/aurora-dist/internal/store/memory"
-	"github.com/aurora-capcompute/aurora-dist/internal/store/sqlite"
-	"github.com/aurora-capcompute/aurora-dist/internal/timers"
+	"github.com/aurora-capcompute/aurora-dist/internal/dist/programs"
+	"github.com/aurora-capcompute/aurora-dist/internal/dist/store/memory"
+	"github.com/aurora-capcompute/aurora-dist/internal/dist/store/sqlite"
+	"github.com/aurora-capcompute/aurora-dist/internal/dist/timers"
 )
 
 // Config wires one distribution instance.
