@@ -104,8 +104,8 @@ func testManifest(llmBaseURL string) aurora.Manifest {
 	return aurora.Manifest{
 		Version: aurora.ManifestVersion,
 		Syscalls: []aurora.Syscall{
-			{Name: "timer.set", Type: "core.timer"},
-			{Name: "llm", Type: "core.openaiApi", Settings: settings, Hidden: true},
+			{Syscall: "core.timer"},
+			{Syscall: "core.openaiApi", Settings: settings, Hidden: true},
 		},
 	}
 }
@@ -475,7 +475,7 @@ func TestCapabilityCeilingOverHTTP(t *testing.T) {
 	body, _ := json.Marshal(map[string]any{
 		"message": "hi",
 		"manifest": aurora.Manifest{Version: aurora.ManifestVersion, Syscalls: []aurora.Syscall{
-			{Name: "fetch", Type: "core.internet", Settings: json.RawMessage(`{"permissions":[{"requestType":"GET","domain":"example.com"}]}`)},
+			{Syscall: "core.internet", Settings: json.RawMessage(`{"permissions":[{"requestType":"GET","domain":"example.com"}]}`)},
 		}},
 	})
 	resp, err := http.Post(server.URL+"/v1/sessions/"+session.Session.ID+"/processes", "application/json", bytes.NewReader(body))
@@ -484,7 +484,7 @@ func TestCapabilityCeilingOverHTTP(t *testing.T) {
 	}
 	defer resp.Body.Close()
 	raw, _ := io.ReadAll(resp.Body)
-	if resp.StatusCode != http.StatusBadRequest || !strings.Contains(string(raw), "fetch") {
+	if resp.StatusCode != http.StatusBadRequest || !strings.Contains(string(raw), "internet.read") {
 		t.Fatalf("status = %d body = %s, want 400 naming the capability", resp.StatusCode, raw)
 	}
 }

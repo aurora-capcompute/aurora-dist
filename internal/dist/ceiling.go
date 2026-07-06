@@ -2,11 +2,15 @@ package dist
 
 import (
 	"encoding/json"
+	"errors"
 	"fmt"
 	"strings"
 
 	"github.com/aurora-capcompute/aurora-capcompute/aurora"
+	"github.com/aurora-capcompute/aurora-dispatchers/internet"
+	"github.com/aurora-capcompute/aurora-dispatchers/memory"
 	"github.com/aurora-capcompute/aurora-dispatchers/openaillm"
+	"github.com/aurora-capcompute/aurora-dispatchers/timer"
 	"github.com/aurora-capcompute/capcompute/sys"
 )
 
@@ -56,14 +60,15 @@ func (c *ceiling) check(manifest aurora.Manifest) error {
 
 // grantedNames statically derives the capability names a grant set publishes,
 // recursing through core.spawn subtrees. Names mirror each registration's
-// publishing behavior:
+// canonical publishing behavior:
 //
-//	core.internet, core.timer   → the grant's local name
-//	core.memory                 → name.get, name.put, name.list
+//	core.timer                  → timer.set
+//	core.internet               → internet.read
+//	core.memory                 → memory.get, memory.put, memory.list
 //	core.openaiApi              → the fixed openai.* operations
 //	core.mcp                    → mcp.<server>.<tool> per explicit tools entry
-//	core.spawn                  → nothing external (the child is granted at
-//	                              the same door, from its nested syscalls)
+//	core.spawn                  → nothing external (each spawnable program is
+//	                              granted at the same door, recursively)
 func grantedNames(syscalls []aurora.Syscall) ([]sys.Capability, error) {
 	var out []sys.Capability
 	add := func(names ...string) {
@@ -72,40 +77,44 @@ func grantedNames(syscalls []aurora.Syscall) ([]sys.Capability, error) {
 		}
 	}
 	for _, grant := range syscalls {
-		switch grant.Type {
-		case aurora.SpawnType:
-			nested, err := grantedNames(grant.Syscalls)
-			if err != nil {
-				return nil, err
+		switch grant.Syscall {
+		case aurora.SpawnSyscall:
+			for _, program := range grant.Programs {
+				nested, err := grantedNames(program.Syscalls)
+				if err != nil {
+					return nil, err
+				}
+				out = append(out, nested...)
 			}
-			out = append(out, nested...)
-		case "core.internet", "core.timer":
-			add(grant.Name)
+		case "core.timer":
+			add(timer.Capability)
+		case "core.internet":
+			add(internet.Capability)
 		case "core.memory":
-			add(grant.Name+".get", grant.Name+".put", grant.Name+".list")
+			add(memory.Capability+".get", memory.Capability+".put", memory.Capability+".list")
 		case openaillm.SyscallType:
 			add(openaillm.Operations()...)
 		case "core.mcp":
 			var settings struct {
 				ServerID string   `json:"server_id"`
-				Tools    []string `json:"syscalls"`
+				Tools    []string `json:"tools"`
 			}
 			if len(grant.Settings) > 0 {
 				if err := json.Unmarshal(grant.Settings, &settings); err != nil {
-					return nil, fmt.Errorf("syscall %q settings: %v", grant.Name, err)
+					return nil, fmt.Errorf("syscall %q settings: %v", grant.Syscall, err)
 				}
 			}
 			if len(settings.Tools) == 0 {
-				return nil, fmt.Errorf("syscall %q: an MCP grant without an explicit tools list cannot be bounded by the capability ceiling", grant.Name)
+				return nil, errors.New("an MCP grant without an explicit tools list cannot be bounded by the capability ceiling")
 			}
 			replacer := strings.NewReplacer(" ", "_", "/", "_", ":", "_")
 			for _, name := range settings.Tools {
 				add("mcp." + replacer.Replace(settings.ServerID) + "." + replacer.Replace(name))
 			}
 		default:
-			// Unknown types fail manifest validation before the ceiling runs;
-			// refuse here too so the ceiling stays conservative.
-			return nil, fmt.Errorf("syscall %q: type %q is not known to the capability ceiling", grant.Name, grant.Type)
+			// Unknown syscalls fail manifest validation before the ceiling
+			// runs; refuse here too so the ceiling stays conservative.
+			return nil, fmt.Errorf("syscall %q is not known to the capability ceiling", grant.Syscall)
 		}
 	}
 	return out, nil
