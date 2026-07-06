@@ -3,9 +3,9 @@ module github.com/aurora-capcompute/aurora-dist
 go 1.26
 
 require (
-	github.com/aurora-capcompute/aurora-capcompute v0.0.0-20260706083253-36dbada56d85
+	github.com/aurora-capcompute/aurora-capcompute v0.0.0-20260706091753-32fee0aed76d
 	github.com/aurora-capcompute/aurora-dispatchers v0.0.0-20260705180132-0c9691ed01d1
-	github.com/aurora-capcompute/capcompute v0.0.0-20260705230225-2a79accf3483
+	github.com/aurora-capcompute/capcompute v0.0.0-20260706091125-e83c13aaf54c
 	github.com/mattn/go-sqlite3 v1.14.47
 )
 
