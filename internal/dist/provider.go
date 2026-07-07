@@ -41,6 +41,7 @@ func (p *provider) NewDispatcher(
 	for _, grant := range leaf {
 		entries = append(entries, registry.Entry{
 			Syscall: grant.Syscall, Settings: grant.Settings, Hidden: grant.Hidden,
+			Labels: grant.Labels, Forbid: grant.Forbid,
 		})
 	}
 	config, err := p.registry.Build(ctx, entries, p.services)
