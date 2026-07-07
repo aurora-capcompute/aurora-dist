@@ -496,7 +496,7 @@ func TestCapabilityCeilingOverHTTP(t *testing.T) {
 	}
 	defer resp.Body.Close()
 	raw, _ := io.ReadAll(resp.Body)
-	if resp.StatusCode != http.StatusBadRequest || !strings.Contains(string(raw), "internet.fetch") {
+	if resp.StatusCode != http.StatusBadRequest || !strings.Contains(string(raw), "net.http") {
 		t.Fatalf("status = %d body = %s, want 400 naming the capability", resp.StatusCode, raw)
 	}
 }
