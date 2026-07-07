@@ -21,7 +21,7 @@ func TestCeilingNilAllowsEverything(t *testing.T) {
 }
 
 func TestCeilingAttenuatesGrants(t *testing.T) {
-	c := newCeiling([]string{"internet.read", "sys.timer", "memory.get", "memory.put", "memory.list"})
+	c := newCeiling([]string{"internet.fetch", "sys.timer", "memory.get", "memory.put", "memory.list"})
 
 	ok := manifestWith(
 		aurora.Syscall{Syscall: "core.internet"},
@@ -37,13 +37,13 @@ func TestCeilingAttenuatesGrants(t *testing.T) {
 	if err == nil || !errors.Is(err, aurora.ErrInvalid) {
 		t.Fatalf("beyond ceiling = %v, want ErrInvalid", err)
 	}
-	if !strings.Contains(err.Error(), "internet.read") {
+	if !strings.Contains(err.Error(), "internet.fetch") {
 		t.Fatalf("error does not name the violating capability: %v", err)
 	}
 }
 
 func TestCeilingSeesThroughSpawnTrees(t *testing.T) {
-	c := newCeiling([]string{"internet.read"})
+	c := newCeiling([]string{"internet.fetch"})
 	nested := manifestWith(aurora.Syscall{
 		Syscall: aurora.SpawnSyscall,
 		Programs: []aurora.Manifest{{

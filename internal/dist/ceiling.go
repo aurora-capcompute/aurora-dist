@@ -60,7 +60,7 @@ func (c *ceiling) check(manifest aurora.Manifest) error {
 // canonical publishing behavior:
 //
 //	sys.timer                   → sys.timer (the runtime's own)
-//	core.internet               → internet.read
+//	core.internet               → internet.fetch
 //	core.memory                 → memory.get, memory.put, memory.list
 //	core.openaiApi              → the fixed openai.* operations
 //	sys.spawn                   → nothing external (each spawnable program is

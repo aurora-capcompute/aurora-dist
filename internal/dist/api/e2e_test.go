@@ -190,8 +190,8 @@ func TestDistributionEndToEnd(t *testing.T) {
 	c := &client{t: t, base: server.URL, http: server.Client()}
 
 	// The loaded program set is readable — the terminal's `ls /programs` — and
-	// each artifact carries the interface it bundles (description + input/output
-	// schemas), extracted from the wasm's describe export at registration.
+	// each artifact carries the interface it declares (description + input/output
+	// schemas), read from the sidecar manifest beside the wasm at load.
 	var artifacts []aurora.ProgramArtifact
 	c.do(http.MethodGet, "/v1/programs", nil, &artifacts)
 	if len(artifacts) != 1 || artifacts[0].ID != "agent" || artifacts[0].Digest == "" {
@@ -487,7 +487,7 @@ func TestCapabilityCeilingOverHTTP(t *testing.T) {
 	body, _ := json.Marshal(map[string]any{
 		"message": "hi",
 		"manifest": aurora.Manifest{Version: aurora.ManifestVersion, Syscalls: []aurora.Syscall{
-			{Syscall: "core.internet", Settings: json.RawMessage(`{"permissions":[{"requestType":"GET","domain":"example.com"}]}`)},
+			{Syscall: "core.internet", Settings: json.RawMessage(`{"permissions":[{"methods":["GET"],"domain":"example.com"}]}`)},
 		}},
 	})
 	resp, err := http.Post(server.URL+"/v1/sessions/"+session.Session.ID+"/processes", "application/json", bytes.NewReader(body))
@@ -496,7 +496,7 @@ func TestCapabilityCeilingOverHTTP(t *testing.T) {
 	}
 	defer resp.Body.Close()
 	raw, _ := io.ReadAll(resp.Body)
-	if resp.StatusCode != http.StatusBadRequest || !strings.Contains(string(raw), "internet.read") {
+	if resp.StatusCode != http.StatusBadRequest || !strings.Contains(string(raw), "internet.fetch") {
 		t.Fatalf("status = %d body = %s, want 400 naming the capability", resp.StatusCode, raw)
 	}
 }

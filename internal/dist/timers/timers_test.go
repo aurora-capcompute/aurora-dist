@@ -103,7 +103,7 @@ func TestReconcileArmsAndDisarms(t *testing.T) {
 	// A non-timer task on a parked process is ignored.
 	fake.mu.Lock()
 	other := timerTask("t2", "proc_2", time.Now(), 3600)
-	other.Syscall.Name = "internet.read"
+	other.Syscall.Name = "internet.fetch"
 	fake.sessions["ses_2"] = aurora.SessionSnapshot{Processes: []aurora.ProcessSnapshot{{ID: "proc_2", Status: aurora.ProcessWaitingTask}}}
 	fake.tasks["proc_2"] = []aurora.TaskSnapshot{other}
 	fake.mu.Unlock()

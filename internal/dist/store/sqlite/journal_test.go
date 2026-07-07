@@ -21,7 +21,7 @@ func TestJournalBacksTheKernelTape(t *testing.T) {
 	header := journaled.Header{ABI: sys.ABIVersion, Program: "digest", Process: "proc_1"}
 	// Args and results deliberately carry <, >, and & — they must round-trip
 	// byte-identically or replay refuses its own history as a divergence.
-	call := sys.Syscall{Abi: sys.ABIVersion, Name: "internet.read", Args: json.RawMessage(`{"url":"https://example.com?a=1&b=<2>"}`)}
+	call := sys.Syscall{Abi: sys.ABIVersion, Name: "internet.fetch", Args: json.RawMessage(`{"url":"https://example.com?a=1&b=<2>"}`)}
 
 	tape, err := journaled.NewTape(store.Journal("proc_1"), header)
 	if err != nil {
