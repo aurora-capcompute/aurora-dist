@@ -210,7 +210,7 @@ func TestDistributionEndToEnd(t *testing.T) {
 	sessionID := session.Session.ID
 	var process aurora.ProcessSnapshot
 	c.do(http.MethodPost, "/v1/sessions/"+sessionID+"/processes", map[string]any{
-		"message":  "take a nap, then report back",
+		"input":    "take a nap, then report back",
 		"manifest": testManifest(llm.URL + "/v1"),
 	}, &process)
 	if !strings.HasPrefix(process.ID, "proc_") || process.SessionID != sessionID {
@@ -298,7 +298,7 @@ func TestDistributionRestartRecoversTimers(t *testing.T) {
 	sessionID := session.Session.ID
 	var process aurora.ProcessSnapshot
 	c.do(http.MethodPost, "/v1/sessions/"+sessionID+"/processes", map[string]any{
-		"message":  "take a nap, then report back",
+		"input":    "take a nap, then report back",
 		"manifest": testManifest(llm.URL + "/v1"),
 	}, &process)
 
@@ -409,7 +409,7 @@ func TestDistributionResumesInterruptedProcess(t *testing.T) {
 	c.do(http.MethodPost, "/v1/sessions", nil, &session)
 	var process aurora.ProcessSnapshot
 	c.do(http.MethodPost, "/v1/sessions/"+session.Session.ID+"/processes", map[string]any{
-		"message":  "do the thing",
+		"input":    "do the thing",
 		"manifest": testManifest(llm.URL + "/v1"),
 	}, &process)
 
@@ -485,7 +485,7 @@ func TestCapabilityCeilingOverHTTP(t *testing.T) {
 	c.do(http.MethodPost, "/v1/sessions", nil, &session)
 
 	body, _ := json.Marshal(map[string]any{
-		"message": "hi",
+		"input": "hi",
 		"manifest": aurora.Manifest{Version: aurora.ManifestVersion, Syscalls: []aurora.Syscall{
 			{Syscall: "core.internet", Settings: json.RawMessage(`{"permissions":[{"methods":["GET"],"domain":"example.com"}]}`)},
 		}},

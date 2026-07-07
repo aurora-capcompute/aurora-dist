@@ -244,11 +244,11 @@ func (d *Dist) CreateSession(tags map[string]string) (aurora.SessionSnapshot, er
 // CreateProcess starts a process on a session after the distribution's own
 // gate: the capability ceiling. Manifest validation proper happens inside the
 // runtime (ValidateManifest against the compiled driver set).
-func (d *Dist) CreateProcess(sessionID, message string, manifest aurora.Manifest) (aurora.ProcessSnapshot, error) {
+func (d *Dist) CreateProcess(sessionID, input string, manifest aurora.Manifest) (aurora.ProcessSnapshot, error) {
 	if err := d.ceiling.check(manifest); err != nil {
 		return aurora.ProcessSnapshot{}, err
 	}
-	return d.Runtime.CreateProcess(sessionID, message, manifest)
+	return d.Runtime.CreateProcess(sessionID, input, manifest)
 }
 
 // startProgramReload re-scans the programs directory into the runtime every

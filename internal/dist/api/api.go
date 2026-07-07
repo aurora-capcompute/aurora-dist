@@ -100,7 +100,9 @@ func (h *handler) getSession(w http.ResponseWriter, r *http.Request) {
 // --- processes ---
 
 type createProcessRequest struct {
-	Message string `json:"message"`
+	// Input is the process's input — exactly what the program's declared input
+	// schema accepts (string-first: plain text, or a JSON document).
+	Input string `json:"input"`
 	// Manifest arrives per-process from the client — there is deliberately no
 	// manifest entity in the core. Omitted means an empty composition (no
 	// tools) at the current manifest version.
@@ -116,7 +118,7 @@ func (h *handler) createProcess(w http.ResponseWriter, r *http.Request) {
 	if req.Manifest != nil {
 		manifest = *req.Manifest
 	}
-	snapshot, err := h.dist.CreateProcess(r.PathValue("id"), req.Message, manifest)
+	snapshot, err := h.dist.CreateProcess(r.PathValue("id"), req.Input, manifest)
 	writeJSON(w, snapshot, err)
 }
 
