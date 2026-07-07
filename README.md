@@ -29,11 +29,12 @@ The cores stay interfaces-only; this repo is where the choices live:
     tracks the filesystem without a manual reload. The manifest declares the
     program's description and input/output JSON Schemas — read declaratively at
     load, no execution — so `GET /v1/programs` tells a client what to pass; a
-    `*.wasm` with no `*.json` beside it is refused. Processes are immutably
-    bound to the (name, digest) they were created from: replacing a `*.wasm`
-    strands its in-flight processes — they cannot resume or restart under the
-    new bytes, only be killed to settle their effects — and the new artifact
-    serves new processes.
+    `*.wasm` with no `*.json` beside it is refused. A program's identity covers
+    both files, so the interface is part of its contract. Processes are
+    immutably bound to the (name, identity) they were created from: editing a
+    `*.wasm` **or** its `*.json` strands the in-flight processes of the old
+    identity — they cannot resume or restart, only be killed to settle their
+    effects — and the new artifact serves new processes.
   - **Capability ceiling** — an operator-configured list of capability names;
     process creation refuses manifests granting beyond it (`sys.Attenuate` at
     the door, recursing through `sys.spawn` trees). Defense in depth against
