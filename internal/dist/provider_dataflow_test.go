@@ -25,9 +25,10 @@ func TestProviderAppliesGrantDataFlowPolicy(t *testing.T) {
 			{
 				Syscall:  "core.internet",
 				Settings: json.RawMessage(`{"permissions":[{"methods":["GET"],"domain":"example.com"}]}`),
-				Labels:   []string{"untrusted_web"},
+				Labels:   map[string][]string{"*": {"untrusted_web"}},
 			},
-			{Syscall: "core.memory", Forbid: []string{"untrusted_web"}},
+			// Per-operation targeting: forbid the write, leave the read alone.
+			{Syscall: "core.memory", Forbid: map[string][]string{"memory.put": {"untrusted_web"}}},
 		},
 	}
 	dispatcher, err := provider.NewDispatcher(context.Background(), aurora.ProcessContext{}, manifest)
@@ -42,10 +43,10 @@ func TestProviderAppliesGrantDataFlowPolicy(t *testing.T) {
 	if web := byName["net.http"]; len(web.Labels) != 1 || web.Labels[0] != "untrusted_web" {
 		t.Fatalf("net.http labels = %v, want [untrusted_web]", web.Labels)
 	}
-	for _, op := range []string{"memory.get", "memory.put", "memory.list"} {
-		got := byName[op]
-		if len(got.Forbid) != 1 || got.Forbid[0] != "untrusted_web" {
-			t.Fatalf("%s forbid = %v, want [untrusted_web]", op, got.Forbid)
-		}
+	if put := byName["memory.put"]; len(put.Forbid) != 1 || put.Forbid[0] != "untrusted_web" {
+		t.Fatalf("memory.put forbid = %v, want [untrusted_web]", put.Forbid)
+	}
+	if get := byName["memory.get"]; len(get.Forbid) != 0 {
+		t.Fatalf("memory.get forbid = %v, want none (per-operation targeting)", get.Forbid)
 	}
 }
