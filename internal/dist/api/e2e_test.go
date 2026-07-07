@@ -178,11 +178,16 @@ func TestDistributionEndToEnd(t *testing.T) {
 	defer server.Close()
 	c := &client{t: t, base: server.URL, http: server.Client()}
 
-	// The loaded program set is readable — the terminal's `ls /programs`.
+	// The loaded program set is readable — the terminal's `ls /programs` — and
+	// each artifact carries the interface it bundles (description + input/output
+	// schemas), extracted from the wasm's describe export at registration.
 	var artifacts []aurora.ProgramArtifact
 	c.do(http.MethodGet, "/v1/programs", nil, &artifacts)
 	if len(artifacts) != 1 || artifacts[0].ID != "agent" || artifacts[0].Digest == "" {
 		t.Fatalf("programs = %+v, want the loaded agent artifact with its digest", artifacts)
+	}
+	if artifacts[0].Description == "" || len(artifacts[0].Input) == 0 || len(artifacts[0].Output) == 0 {
+		t.Fatalf("program interface not surfaced: %+v", artifacts[0])
 	}
 
 	// Create a session, start a process.

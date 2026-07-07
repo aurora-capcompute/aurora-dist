@@ -25,11 +25,14 @@ The cores stay interfaces-only; this repo is where the choices live:
   - **Program directory** — programs load from a directory of `*.wasm`
     artifacts (id = file name), and the directory is re-scanned into the
     runtime on a ticker (digest-diffed — unchanged programs keep running), so
-    the in-memory set tracks the filesystem without a manual reload. Processes
-    are immutably bound to the (name, digest) they were created from:
-    replacing a `*.wasm` strands its in-flight processes — they cannot resume
-    or restart under the new bytes, only be killed to settle their effects —
-    and the new artifact serves new processes.
+    the in-memory set tracks the filesystem without a manual reload. Each
+    `*.wasm` describes itself (a pure `describe` export the runtime extracts at
+    load, refusing one that cannot): the artifact carries a description and
+    input/output JSON Schemas, so `GET /v1/programs` tells a client what to
+    pass. Processes are immutably bound to the (name, digest) they were created
+    from: replacing a `*.wasm` strands its in-flight processes — they cannot
+    resume or restart under the new bytes, only be killed to settle their
+    effects — and the new artifact serves new processes.
   - **Capability ceiling** — an operator-configured list of capability names;
     process creation refuses manifests granting beyond it (`sys.Attenuate` at
     the door, recursing through `sys.spawn` trees). Defense in depth against
@@ -72,7 +75,7 @@ aurora-dist -addr :8080 -data ./data -programs ./programs
 | `GET /v1/processes/{id}` | cheap single-process status poll |
 | `POST /v1/processes/{id}/stop` · `/retry` | steer (`{"mode":"resume"\|"restart"}`) |
 | `POST /v1/tasks/{id}/resolve` | `{resolution_token, resolution:{decision,...}}` |
-| `GET /v1/programs` | the loaded program artifacts (read-only) |
+| `GET /v1/programs` | the loaded program artifacts (read-only) — each with the interface it bundles (description + input/output schemas) |
 
 **One read, many renderings.** `GET /v1/sessions/{id}` returns the whole
 session log: session metadata, conversation history, and every process with
