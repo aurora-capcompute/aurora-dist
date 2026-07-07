@@ -3,9 +3,9 @@ module github.com/aurora-capcompute/aurora-dist
 go 1.26
 
 require (
-	github.com/aurora-capcompute/aurora-capcompute v0.0.0-20260707113936-2cfca8dc30fe
-	github.com/aurora-capcompute/aurora-dispatchers v0.0.0-20260707120543-b49f30301663
-	github.com/aurora-capcompute/capcompute v0.0.0-20260706175516-e6bce5dd2bf1
+	github.com/aurora-capcompute/aurora-capcompute v0.0.0-20260707131346-323d41cb8080
+	github.com/aurora-capcompute/aurora-dispatchers v0.0.0-20260707131429-63d78372a842
+	github.com/aurora-capcompute/capcompute v0.0.0-20260707131151-ff4f2f6cc9a5
 	github.com/mattn/go-sqlite3 v1.14.47
 )
 
@@ -25,6 +25,6 @@ require (
 	github.com/tidwall/sjson v1.2.5 // indirect
 	go.opentelemetry.io/proto/otlp v1.10.0 // indirect
 	golang.org/x/sys v0.46.0 // indirect
-	golang.org/x/text v0.38.0 // indirect
+	golang.org/x/text v0.39.0 // indirect
 	google.golang.org/protobuf v1.36.12-0.20260120151049-f2248ac996af // indirect
 )
