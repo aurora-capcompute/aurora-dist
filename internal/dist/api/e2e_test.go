@@ -50,14 +50,14 @@ func buildProgram(t *testing.T) []byte {
 		cmd := exec.CommandContext(ctx, "cargo", "build",
 			"--release",
 			"--target", "wasm32-wasip1",
-			"-p", "agent-brain",
+			"-p", "agent",
 		)
 		cmd.Dir = "../../../../aurora-brains"
 		if out, err := cmd.CombinedOutput(); err != nil {
 			programError = fmt.Errorf("build program: %v\n%s", err, out)
 			return
 		}
-		wasmPath := filepath.Join(cmd.Dir, "target", "wasm32-wasip1", "release", "agent_brain.wasm")
+		wasmPath := filepath.Join(cmd.Dir, "target", "wasm32-wasip1", "release", "agent.wasm")
 		raw, err := os.ReadFile(wasmPath)
 		if err != nil {
 			programError = fmt.Errorf("read program: %v", err)
@@ -69,6 +69,19 @@ func buildProgram(t *testing.T) []byte {
 		t.Skipf("agent program unavailable: %v", programError)
 	}
 	return programWasm
+}
+
+// writeProgramDir drops the pair a programs directory loads: agent.wasm and its
+// agent.json interface manifest.
+func writeProgramDir(t *testing.T, dir string, wasm []byte) {
+	t.Helper()
+	if err := os.WriteFile(filepath.Join(dir, "agent.wasm"), wasm, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	iface := `{"description":"the agent","input":{"type":"string"},"output":{"type":"string"}}`
+	if err := os.WriteFile(filepath.Join(dir, "agent.json"), []byte(iface), 0o600); err != nil {
+		t.Fatal(err)
+	}
 }
 
 // scriptedLLM is an OpenAI-compatible chat stub: until it has seen a timer
@@ -151,9 +164,7 @@ func TestDistributionEndToEnd(t *testing.T) {
 	wasm := buildProgram(t)
 
 	programsDir := t.TempDir()
-	if err := os.WriteFile(filepath.Join(programsDir, "agent.wasm"), wasm, 0o600); err != nil {
-		t.Fatal(err)
-	}
+	writeProgramDir(t, programsDir, wasm)
 	llm := scriptedLLM(t)
 	defer llm.Close()
 
@@ -264,9 +275,7 @@ func TestDistributionRestartRecoversTimers(t *testing.T) {
 	wasm := buildProgram(t)
 
 	programsDir := t.TempDir()
-	if err := os.WriteFile(filepath.Join(programsDir, "agent.wasm"), wasm, 0o600); err != nil {
-		t.Fatal(err)
-	}
+	writeProgramDir(t, programsDir, wasm)
 	dataDir := t.TempDir()
 	llm := scriptedLLM(t)
 	defer llm.Close()
@@ -354,9 +363,7 @@ func TestDistributionResumesInterruptedProcess(t *testing.T) {
 	wasm := buildProgram(t)
 
 	programsDir := t.TempDir()
-	if err := os.WriteFile(filepath.Join(programsDir, "agent.wasm"), wasm, 0o600); err != nil {
-		t.Fatal(err)
-	}
+	writeProgramDir(t, programsDir, wasm)
 	dataDir := t.TempDir()
 
 	// The model blocks its first call (so the process is caught mid-run) and,

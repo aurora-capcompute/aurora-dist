@@ -22,17 +22,18 @@ The cores stay interfaces-only; this repo is where the choices live:
     reconcile runs at boot, re-arming pending timers from persisted state and
     firing elapsed ones immediately. Fire times are absolute (`created_at +
     duration`), so discovery latency never shifts a deadline.
-  - **Program directory** — programs load from a directory of `*.wasm`
-    artifacts (id = file name), and the directory is re-scanned into the
-    runtime on a ticker (digest-diffed — unchanged programs keep running), so
-    the in-memory set tracks the filesystem without a manual reload. Each
-    `*.wasm` describes itself (a pure `describe` export the runtime extracts at
-    load, refusing one that cannot): the artifact carries a description and
-    input/output JSON Schemas, so `GET /v1/programs` tells a client what to
-    pass. Processes are immutably bound to the (name, digest) they were created
-    from: replacing a `*.wasm` strands its in-flight processes — they cannot
-    resume or restart under the new bytes, only be killed to settle their
-    effects — and the new artifact serves new processes.
+  - **Program directory** — programs load from a directory of `<name>.wasm`
+    artifacts, each paired with a `<name>.json` interface manifest (id = file
+    name), and the directory is re-scanned into the runtime on a ticker
+    (digest-diffed — unchanged programs keep running), so the in-memory set
+    tracks the filesystem without a manual reload. The manifest declares the
+    program's description and input/output JSON Schemas — read declaratively at
+    load, no execution — so `GET /v1/programs` tells a client what to pass; a
+    `*.wasm` with no `*.json` beside it is refused. Processes are immutably
+    bound to the (name, digest) they were created from: replacing a `*.wasm`
+    strands its in-flight processes — they cannot resume or restart under the
+    new bytes, only be killed to settle their effects — and the new artifact
+    serves new processes.
   - **Capability ceiling** — an operator-configured list of capability names;
     process creation refuses manifests granting beyond it (`sys.Attenuate` at
     the door, recursing through `sys.spawn` trees). Defense in depth against

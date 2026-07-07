@@ -1,8 +1,9 @@
-// Package programs is the distribution's program registry: it loads wasm
-// program artifacts from a directory and reconciles them into the runtime via
-// SetPrograms (digest-diffed — unchanged programs keep running). The
-// distribution re-scans the directory on a ticker so the runtime's in-memory
-// program set tracks the filesystem.
+// Package programs is the distribution's program registry: it loads program
+// artifacts from a directory — each a <name>.wasm paired with its <name>.json
+// interface manifest — and reconciles them into the runtime via SetPrograms
+// (digest-diffed — unchanged programs keep running). The distribution re-scans
+// the directory on a ticker so the runtime's in-memory program set tracks the
+// filesystem.
 package programs
 
 import (
@@ -18,8 +19,9 @@ import (
 
 // Dir loads programs from a directory: every *.wasm file registers as a
 // program whose id is the file name without the extension (so
-// "agent@1.wasm" → "agent@1"). It implements aurora.ProgramProvider for the
-// initial load and re-scans on demand for hot reload.
+// "agent@1.wasm" → "agent@1"), paired with its "<id>.json" interface manifest
+// in the same directory. It implements aurora.ProgramProvider for the initial
+// load and re-scans on demand for hot reload.
 type Dir struct {
 	// Path is the directory scanned for *.wasm artifacts. Empty means no
 	// programs — the runtime boots empty and gains programs on first reload.
@@ -62,13 +64,19 @@ func (d Dir) List(_ context.Context) ([]aurora.ProgramSource, error) {
 		if entry.IsDir() || !strings.HasSuffix(entry.Name(), ".wasm") {
 			continue
 		}
+		id := strings.TrimSuffix(entry.Name(), ".wasm")
 		wasm, err := os.ReadFile(filepath.Join(d.Path, entry.Name()))
 		if err != nil {
 			return nil, fmt.Errorf("read program %s: %w", entry.Name(), err)
 		}
+		iface, err := os.ReadFile(filepath.Join(d.Path, id+".json"))
+		if err != nil {
+			return nil, fmt.Errorf("read program %s interface (%s.json): %w", id, id, err)
+		}
 		sources = append(sources, aurora.ProgramSource{
-			ID:   strings.TrimSuffix(entry.Name(), ".wasm"),
-			Wasm: wasm,
+			ID:        id,
+			Wasm:      wasm,
+			Interface: iface,
 		})
 	}
 	sort.Slice(sources, func(i, j int) bool { return sources[i].ID < sources[j].ID })
