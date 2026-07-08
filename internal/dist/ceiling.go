@@ -38,9 +38,9 @@ func newCeiling(names []string) *ceiling {
 // for every node of the spawn tree, since spawned children are granted at
 // the same door — and verifies the whole set against the ceiling. The
 // derivation mirrors what each compiled-in registration publishes; it is
-// deliberately static (no MCP dial, no driver construction), which is why an
-// open-ended MCP grant (no explicit tools list) cannot be bounded and is
-// refused when a ceiling is configured.
+// deliberately static (no driver construction), which it can be because every
+// grant publishes exactly one capability named for its syscall (grantedNames),
+// so the whole set is enumerable without instantiating anything.
 func (c *ceiling) check(manifest aurora.Manifest) error {
 	if c == nil {
 		return nil
