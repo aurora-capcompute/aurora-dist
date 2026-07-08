@@ -236,9 +236,15 @@ func stableInstanceID(dataDir string) (string, error) {
 	return id, nil
 }
 
-// CreateSession creates a session.
-func (d *Dist) CreateSession(tags map[string]string) (aurora.SessionSnapshot, error) {
-	return d.Runtime.CreateSession(tags)
+// CreateSession creates a session with an optional explicit name (its handle,
+// unique per tenant; empty means the id is the handle).
+func (d *Dist) CreateSession(name string, tags map[string]string) (aurora.SessionSnapshot, error) {
+	return d.Runtime.CreateSession(name, tags)
+}
+
+// RenameSession changes a session's explicit handle.
+func (d *Dist) RenameSession(sessionID, name string) (aurora.SessionSnapshot, error) {
+	return d.Runtime.RenameSession(sessionID, name)
 }
 
 // CreateProcess starts a process on a session after the distribution's own

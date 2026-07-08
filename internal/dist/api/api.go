@@ -35,6 +35,7 @@ func Handler(d *dist.Dist) http.Handler {
 	mux.HandleFunc("GET /v1/sessions", h.listSessions)
 	mux.HandleFunc("POST /v1/sessions", h.createSession)
 	mux.HandleFunc("GET /v1/sessions/{id}", h.getSession)
+	mux.HandleFunc("POST /v1/sessions/{id}/rename", h.renameSession)
 	mux.HandleFunc("POST /v1/sessions/{id}/processes", h.createProcess)
 
 	// Processes. A single-process snapshot is kept for cheap status polling;
@@ -72,6 +73,9 @@ func (h *handler) listPrograms(w http.ResponseWriter, _ *http.Request) {
 }
 
 type createSessionRequest struct {
+	// Name is the session's explicit handle (unique per tenant; empty = unnamed,
+	// the id is then the handle).
+	Name string            `json:"name,omitempty"`
 	Tags map[string]string `json:"tags,omitempty"`
 }
 
@@ -80,7 +84,7 @@ func (h *handler) createSession(w http.ResponseWriter, r *http.Request) {
 	if r.ContentLength != 0 && !readJSON(w, r, &req) {
 		return
 	}
-	snapshot, err := h.dist.CreateSession(req.Tags)
+	snapshot, err := h.dist.CreateSession(req.Name, req.Tags)
 	if err != nil {
 		writeError(w, err)
 		return
@@ -88,6 +92,23 @@ func (h *handler) createSession(w http.ResponseWriter, r *http.Request) {
 	// Return the created session in the same shape a GET would, so a client
 	// has one session representation to decode.
 	log, err := h.dist.SessionLog(snapshot.ID)
+	writeJSON(w, log, err)
+}
+
+type renameSessionRequest struct {
+	Name string `json:"name"`
+}
+
+func (h *handler) renameSession(w http.ResponseWriter, r *http.Request) {
+	var req renameSessionRequest
+	if !readJSON(w, r, &req) {
+		return
+	}
+	if _, err := h.dist.RenameSession(r.PathValue("id"), req.Name); err != nil {
+		writeError(w, err)
+		return
+	}
+	log, err := h.dist.SessionLog(r.PathValue("id"))
 	writeJSON(w, log, err)
 }
 
