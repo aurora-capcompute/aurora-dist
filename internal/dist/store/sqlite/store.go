@@ -1,7 +1,6 @@
 // Package sqlite is the distribution's durable store: an append-only event
 // log (one ordered stream per session), a lease table for cross-instance
-// coordination, a hash-chained kernel journal store (journaled.Journal) with
-// a Verify audit path, and the tenant-memory KV behind core.memory — with the
+// coordination, and the tenant-memory KV behind core.memory — with the
 // activity memory that makes the driver's intent→completion crash window
 // exactly-once. The runtime folds the log into session/process/task
 // projections; there is no per-entity row store.
@@ -62,16 +61,6 @@ CREATE TABLE IF NOT EXISTS leases (
 	key        TEXT PRIMARY KEY,
 	holder     TEXT NOT NULL,
 	expires_at TEXT NOT NULL
-);
-CREATE TABLE IF NOT EXISTS journal_headers (
-	journal_id TEXT PRIMARY KEY,
-	header     BLOB NOT NULL
-);
-CREATE TABLE IF NOT EXISTS journal_records (
-	journal_id TEXT    NOT NULL,
-	position   INTEGER NOT NULL,
-	record     BLOB    NOT NULL,
-	PRIMARY KEY (journal_id, position)
 );
 CREATE TABLE IF NOT EXISTS memory_values (
 	tenant_id TEXT    NOT NULL,

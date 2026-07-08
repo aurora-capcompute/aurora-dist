@@ -36,13 +36,7 @@ type Service struct {
 	now     func() time.Time
 
 	mu     sync.Mutex
-	timers map[string]*scheduledTimer
-}
-
-type scheduledTimer struct {
-	timer     *time.Timer
-	processID string
-	fireAt    time.Time
+	timers map[string]*time.Timer
 }
 
 func New(runtime Runtime, logger *slog.Logger) *Service {
@@ -53,7 +47,7 @@ func New(runtime Runtime, logger *slog.Logger) *Service {
 		runtime: runtime,
 		logger:  logger,
 		now:     time.Now,
-		timers:  make(map[string]*scheduledTimer),
+		timers:  make(map[string]*time.Timer),
 	}
 }
 
@@ -145,25 +139,8 @@ func (s *Service) Schedule(task aurora.TaskSnapshot) {
 	if _, exists := s.timers[task.ID]; exists {
 		return
 	}
-	taskID, token, processID := task.ID, task.ResolutionToken, task.ProcessID
-	s.timers[task.ID] = &scheduledTimer{
-		timer:     time.AfterFunc(delay, func() { s.fire(taskID, token, label) }),
-		processID: processID,
-		fireAt:    fireAt,
-	}
-}
-
-// FireAtFor returns the fire time of the timer currently armed for a process,
-// if any.
-func (s *Service) FireAtFor(processID string) (time.Time, bool) {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	for _, entry := range s.timers {
-		if entry.processID == processID {
-			return entry.fireAt, true
-		}
-	}
-	return time.Time{}, false
+	taskID, token := task.ID, task.ResolutionToken
+	s.timers[task.ID] = time.AfterFunc(delay, func() { s.fire(taskID, token, label) })
 }
 
 func (s *Service) fire(taskID, token, label string) {
@@ -190,7 +167,7 @@ func (s *Service) Cancel(taskID string) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	if entry, ok := s.timers[taskID]; ok {
-		entry.timer.Stop()
+		entry.Stop()
 		delete(s.timers, taskID)
 	}
 }
@@ -200,7 +177,7 @@ func (s *Service) StopAll() {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	for id, entry := range s.timers {
-		entry.timer.Stop()
+		entry.Stop()
 		delete(s.timers, id)
 	}
 }

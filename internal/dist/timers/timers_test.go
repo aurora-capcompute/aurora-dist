@@ -94,9 +94,16 @@ func TestReconcileArmsAndDisarms(t *testing.T) {
 	service := New(fake, slog.Default())
 	defer service.StopAll()
 
+	armed := func(taskID string) bool {
+		service.mu.Lock()
+		defer service.mu.Unlock()
+		_, ok := service.timers[taskID]
+		return ok
+	}
+
 	// A pending timer task on a parked process is armed.
 	service.Reconcile()
-	if _, ok := service.FireAtFor("proc_1"); !ok {
+	if !armed("t1") {
 		t.Fatal("reconcile did not arm the pending timer task")
 	}
 
@@ -108,7 +115,7 @@ func TestReconcileArmsAndDisarms(t *testing.T) {
 	fake.tasks["proc_2"] = []aurora.TaskSnapshot{other}
 	fake.mu.Unlock()
 	service.Reconcile()
-	if _, ok := service.FireAtFor("proc_2"); ok {
+	if armed("t2") {
 		t.Fatal("a non-timer task was armed")
 	}
 
@@ -118,7 +125,7 @@ func TestReconcileArmsAndDisarms(t *testing.T) {
 	fake.sessions["ses_1"] = aurora.SessionSnapshot{Processes: []aurora.ProcessSnapshot{{ID: "proc_1", Status: aurora.ProcessCompleted}}}
 	fake.mu.Unlock()
 	service.Reconcile()
-	if _, ok := service.FireAtFor("proc_1"); ok {
+	if armed("t1") {
 		t.Fatal("reconcile kept a timer for a finished process")
 	}
 }
