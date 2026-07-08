@@ -11,10 +11,11 @@ import (
 	"github.com/aurora-capcompute/capcompute/sys"
 )
 
-// A manifest grant's labels/forbid must reach the live capabilities the kernel's
-// provenance monitor reads: source labels on the emitting capability, the forbid
-// set on every capability a multi-op grant publishes.
-func TestProviderAppliesGrantDataFlowPolicy(t *testing.T) {
+// A manifest grant's per-operation data-flow policy must survive the whole
+// assembly — provider → registry → driver — and be enforced at dispatch: each
+// leaf grant publishes one capability named for its syscall, and a granted
+// operation's `taints` refuse a run that has observed the forbidden label.
+func TestProviderEnforcesPerOperationFlow(t *testing.T) {
 	provider := newProvider(
 		[]registry.Registration{registry.InternetRegistration{}, registry.MemoryRegistration{}},
 		registry.Services{Tenant: "acme", MemoryStore: memory.NewMapStore()},
@@ -22,13 +23,9 @@ func TestProviderAppliesGrantDataFlowPolicy(t *testing.T) {
 	manifest := aurora.Manifest{
 		Version: aurora.ManifestVersion,
 		Syscalls: []aurora.Syscall{
-			{
-				Syscall:  "core.internet",
-				Settings: json.RawMessage(`{"permissions":[{"methods":["GET"],"domain":"example.com"}]}`),
-				Labels:   map[string][]string{"*": {"untrusted_web"}},
-			},
-			// Per-operation targeting: forbid the write, leave the read alone.
-			{Syscall: "core.memory", Forbid: map[string][]string{"memory.put": {"untrusted_web"}}},
+			{Syscall: "core.internet", Config: json.RawMessage(`{"capabilities":[{"methods":["GET"],"domain":"example.com","labels":["untrusted_web"]}]}`)},
+			// Per-operation targeting: the write forbids untrusted_web, the read is open.
+			{Syscall: "core.memory", Config: json.RawMessage(`{"capabilities":[{"operation":"get"},{"operation":"put","taints":["untrusted_web"]}]}`)},
 		},
 	}
 	dispatcher, err := provider.NewDispatcher(context.Background(), aurora.ProcessContext{}, manifest)
@@ -36,17 +33,31 @@ func TestProviderAppliesGrantDataFlowPolicy(t *testing.T) {
 		t.Fatalf("new dispatcher: %v", err)
 	}
 
-	byName := map[string]sys.Capability{}
+	// Each leaf grant publishes exactly one capability, named for its syscall.
+	names := map[string]bool{}
 	for _, capability := range dispatcher.Capabilities() {
-		byName[capability.Name] = capability
+		names[capability.Name] = true
 	}
-	if web := byName["net.http"]; len(web.Labels) != 1 || web.Labels[0] != "untrusted_web" {
-		t.Fatalf("net.http labels = %v, want [untrusted_web]", web.Labels)
+	for _, want := range []string{"core.internet", "core.memory"} {
+		if !names[want] {
+			t.Fatalf("capability %q not published: %v", want, names)
+		}
 	}
-	if put := byName["memory.put"]; len(put.Forbid) != 1 || put.Forbid[0] != "untrusted_web" {
-		t.Fatalf("memory.put forbid = %v, want [untrusted_web]", put.Forbid)
+
+	put := func(ctx context.Context) sys.SyscallResult {
+		result, err := dispatcher.Dispatch(ctx, aurora.ProcessContext{}, sys.Syscall{
+			Name: "core.memory", Args: json.RawMessage(`{"operation":"put","key":"k","value":"v"}`)}, sys.Authorization{})
+		if err != nil {
+			t.Fatalf("dispatch put: %v", err)
+		}
+		return result
 	}
-	if get := byName["memory.get"]; len(get.Forbid) != 0 {
-		t.Fatalf("memory.get forbid = %v, want none (per-operation targeting)", get.Forbid)
+	// A run tainted with untrusted_web may not write.
+	if blocked := put(sys.WithTaint(context.Background(), []string{"untrusted_web"})); blocked.Status() != sys.StatusFailed || blocked.Errno() != sys.ErrnoDenied {
+		t.Fatalf("tainted put = %v/%v, want failed/denied", blocked.Status(), blocked.Errno())
+	}
+	// A clean run may.
+	if ok := put(context.Background()); ok.Status() != sys.StatusResult {
+		t.Fatalf("clean put = %v", ok.Status())
 	}
 }

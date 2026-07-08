@@ -21,7 +21,7 @@ func TestCeilingNilAllowsEverything(t *testing.T) {
 }
 
 func TestCeilingAttenuatesGrants(t *testing.T) {
-	c := newCeiling([]string{"net.http", "sys.timer", "memory.get", "memory.put", "memory.list"})
+	c := newCeiling([]string{"core.internet", "sys.timer", "core.memory"})
 
 	ok := manifestWith(
 		aurora.Syscall{Syscall: "core.internet"},
@@ -37,13 +37,13 @@ func TestCeilingAttenuatesGrants(t *testing.T) {
 	if err == nil || !errors.Is(err, aurora.ErrInvalid) {
 		t.Fatalf("beyond ceiling = %v, want ErrInvalid", err)
 	}
-	if !strings.Contains(err.Error(), "net.http") {
+	if !strings.Contains(err.Error(), "core.internet") {
 		t.Fatalf("error does not name the violating capability: %v", err)
 	}
 }
 
 func TestCeilingSeesThroughSpawnTrees(t *testing.T) {
-	c := newCeiling([]string{"net.http"})
+	c := newCeiling([]string{"core.internet"})
 	nested := manifestWith(aurora.Syscall{
 		Syscall: aurora.SpawnSyscall,
 		Programs: []aurora.Manifest{{
@@ -56,13 +56,15 @@ func TestCeilingSeesThroughSpawnTrees(t *testing.T) {
 	}
 }
 
-func TestCeilingCoversFixedOpenAIOperations(t *testing.T) {
-	c := newCeiling([]string{"openai.chat", "openai.responses", "openai.embeddings", "openai.models.list"})
+// A leaf grant publishes one capability, named for its syscall: the ceiling
+// gates the family, and operations are selected within the manifest.
+func TestCeilingGatesOpenAIFamily(t *testing.T) {
+	c := newCeiling([]string{"core.openaiApi"})
 	if err := c.check(manifestWith(aurora.Syscall{Syscall: "core.openaiApi", Hidden: true})); err != nil {
-		t.Fatalf("openai grants rejected: %v", err)
+		t.Fatalf("openai grant rejected: %v", err)
 	}
-	if err := newCeiling([]string{"openai.chat"}).check(manifestWith(aurora.Syscall{Syscall: "core.openaiApi"})); err == nil {
-		t.Fatal("partial openai ceiling must refuse the full grant")
+	if err := newCeiling([]string{"core.internet"}).check(manifestWith(aurora.Syscall{Syscall: "core.openaiApi"})); err == nil {
+		t.Fatal("a ceiling without core.openaiApi must refuse the grant")
 	}
 }
 
@@ -71,7 +73,7 @@ func TestCeilingCoversFixedOpenAIOperations(t *testing.T) {
 func TestCeilingRefusesUnknownSyscalls(t *testing.T) {
 	c := newCeiling([]string{"sys.timer"})
 	if err := c.check(manifestWith(aurora.Syscall{Syscall: "core.mcp",
-		Settings: json.RawMessage(`{"server_id":"docs"}`)})); err == nil {
+		Config: json.RawMessage(`{"server_id":"docs"}`)})); err == nil {
 		t.Fatal("an unknown syscall must be refused by the ceiling")
 	}
 }

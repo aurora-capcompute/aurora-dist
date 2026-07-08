@@ -56,22 +56,21 @@ func (c *ceiling) check(manifest aurora.Manifest) error {
 }
 
 // grantedNames statically derives the capability names a grant set publishes,
-// recursing through sys.spawn subtrees. Names mirror each registration's
-// canonical publishing behavior:
+// recursing through sys.spawn subtrees. Each grant publishes exactly one
+// capability, named for its syscall — its operations are cases of that one
+// capability's ADT, not separate names — so the ceiling gates families, not
+// individual operations (a manifest's `capabilities` list selects operations
+// within a granted family):
 //
 //	sys.timer                   → sys.timer (the runtime's own)
-//	core.internet               → net.http
-//	core.memory                 → memory.get, memory.put, memory.list
-//	core.openaiApi              → the fixed openai.* operations
+//	core.internet               → core.internet
+//	core.memory                 → core.memory
+//	core.openaiApi              → core.openaiApi
 //	sys.spawn                   → nothing external (each spawnable program is
 //	                              granted at the same door, recursively)
 func grantedNames(syscalls []aurora.Syscall) ([]sys.Capability, error) {
 	var out []sys.Capability
-	add := func(names ...string) {
-		for _, name := range names {
-			out = append(out, sys.Capability{Name: name})
-		}
-	}
+	add := func(name string) { out = append(out, sys.Capability{Name: name}) }
 	for _, grant := range syscalls {
 		switch grant.Syscall {
 		case aurora.SpawnSyscall:
@@ -84,12 +83,12 @@ func grantedNames(syscalls []aurora.Syscall) ([]sys.Capability, error) {
 			}
 		case aurora.TimerSyscall:
 			add(aurora.TimerSyscall)
-		case "core.internet":
+		case internet.Capability:
 			add(internet.Capability)
-		case "core.memory":
-			add(memory.Capability+".get", memory.Capability+".put", memory.Capability+".list")
+		case memory.Capability:
+			add(memory.Capability)
 		case openaillm.SyscallType:
-			add(openaillm.Operations()...)
+			add(openaillm.SyscallType)
 		default:
 			// Unknown syscalls fail manifest validation before the ceiling
 			// runs; refuse here too so the ceiling stays conservative.

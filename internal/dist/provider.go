@@ -27,8 +27,8 @@ func newProvider(registrations []registry.Registration, services registry.Servic
 	return &provider{registry: registry.New(registrations...), services: services}
 }
 
-func (p *provider) Normalize(syscallType string, settings json.RawMessage) (json.RawMessage, error) {
-	return p.registry.Normalize(syscallType, settings)
+func (p *provider) Normalize(syscallType string, config json.RawMessage) (json.RawMessage, error) {
+	return p.registry.Normalize(syscallType, config)
 }
 
 func (p *provider) NewDispatcher(
@@ -40,8 +40,7 @@ func (p *provider) NewDispatcher(
 	entries := make([]registry.Entry, 0, len(leaf))
 	for _, grant := range leaf {
 		entries = append(entries, registry.Entry{
-			Syscall: grant.Syscall, Settings: grant.Settings, Hidden: grant.Hidden,
-			Labels: grant.Labels, Forbid: grant.Forbid,
+			Syscall: grant.Syscall, Config: grant.Config, Hidden: grant.Hidden,
 		})
 	}
 	config, err := p.registry.Build(ctx, entries, p.services)

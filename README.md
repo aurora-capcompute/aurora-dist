@@ -62,8 +62,7 @@ aurora-dist -addr :8080 -data ./data -programs ./programs
   "tenant_id": "local",
   "data_dir": "./data",
   "programs": {"dir": "./programs", "default": "agent"},
-  "capability_ceiling": ["sys.timer", "openai.chat", "openai.responses",
-                          "openai.embeddings", "openai.models.list"]
+  "capability_ceiling": ["sys.timer", "core.openaiApi"]
 }
 ```
 

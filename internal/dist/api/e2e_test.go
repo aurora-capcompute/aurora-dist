@@ -107,18 +107,20 @@ func scriptedLLM(t *testing.T) *httptest.Server {
 }
 
 func testManifest(llmBaseURL string) aurora.Manifest {
-	settings, _ := json.Marshal(map[string]any{
+	config, _ := json.Marshal(map[string]any{
 		"base_url":            llmBaseURL,
 		"api_key":             "test-key",
 		"allow_insecure_http": true,
 		"default_model":       "stub-model",
-		"require_approval":    false,
+		"capabilities": []map[string]any{
+			{"operation": "chat", "require_approval": false},
+		},
 	})
 	return aurora.Manifest{
 		Version: aurora.ManifestVersion,
 		Syscalls: []aurora.Syscall{
 			{Syscall: "sys.timer"},
-			{Syscall: "core.openaiApi", Settings: settings, Hidden: true},
+			{Syscall: "core.openaiApi", Config: config, Hidden: true},
 		},
 	}
 }
@@ -251,7 +253,7 @@ func TestDistributionEndToEnd(t *testing.T) {
 		names = append(names, entry.Syscall.Name)
 	}
 	story := strings.Join(names, " ")
-	for _, want := range []string{"sys.input", "openai.chat", "sys.timer", "sys.output"} {
+	for _, want := range []string{"sys.input", "core.openaiApi", "sys.timer", "sys.output"} {
 		if !strings.Contains(story, want) {
 			t.Fatalf("journal %v is missing %s", names, want)
 		}
@@ -487,7 +489,7 @@ func TestCapabilityCeilingOverHTTP(t *testing.T) {
 	body, _ := json.Marshal(map[string]any{
 		"input": "hi",
 		"manifest": aurora.Manifest{Version: aurora.ManifestVersion, Syscalls: []aurora.Syscall{
-			{Syscall: "core.internet", Settings: json.RawMessage(`{"permissions":[{"methods":["GET"],"domain":"example.com"}]}`)},
+			{Syscall: "core.internet", Config: json.RawMessage(`{"capabilities":[{"methods":["GET"],"domain":"example.com"}]}`)},
 		}},
 	})
 	resp, err := http.Post(server.URL+"/v1/sessions/"+session.Session.ID+"/processes", "application/json", bytes.NewReader(body))
@@ -496,7 +498,7 @@ func TestCapabilityCeilingOverHTTP(t *testing.T) {
 	}
 	defer resp.Body.Close()
 	raw, _ := io.ReadAll(resp.Body)
-	if resp.StatusCode != http.StatusBadRequest || !strings.Contains(string(raw), "net.http") {
+	if resp.StatusCode != http.StatusBadRequest || !strings.Contains(string(raw), "core.internet") {
 		t.Fatalf("status = %d body = %s, want 400 naming the capability", resp.StatusCode, raw)
 	}
 }
