@@ -502,3 +502,185 @@ func TestCapabilityCeilingOverHTTP(t *testing.T) {
 		t.Fatalf("status = %d body = %s, want 400 naming the capability", resp.StatusCode, raw)
 	}
 }
+
+// TestAgentLoopIsCapped proves the reasoning loop is bounded: a model that never
+// finishes — it asks for a synchronous tool (a memory read) on every turn — is
+// forced to a final answer at the guest's step cap, so the process completes
+// instead of looping forever. The stub counts its calls: 15 tool turns plus the
+// one forced-final turn is exactly the 16-step cap, and never more.
+func TestAgentLoopIsCapped(t *testing.T) {
+	wasm := buildProgram(t)
+	programsDir := t.TempDir()
+	writeProgramDir(t, programsDir, wasm)
+
+	var calls atomic.Int64
+	llm := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if !strings.HasSuffix(r.URL.Path, "/chat/completions") {
+			http.NotFound(w, r)
+			return
+		}
+		calls.Add(1)
+		// Never finish: always ask for a synchronous memory read so the loop
+		// would run forever if it were not capped.
+		reply := `{"actions":[{"action":"core.memory","content":{"operation":"get","key":"k"}}]}`
+		payload, _ := json.Marshal(map[string]any{
+			"choices": []any{map[string]any{"message": map[string]any{"content": reply}}},
+		})
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write(payload)
+	}))
+	defer llm.Close()
+
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	d, err := dist.New(ctx, dist.Config{
+		ProgramsDir: programsDir,
+		TaskSecret:  []byte("e2e-secret"),
+		Logger:      slog.New(slog.NewTextHandler(io.Discard, nil)),
+	})
+	if err != nil {
+		t.Fatalf("assemble distribution: %v", err)
+	}
+	defer func() {
+		closeCtx, closeCancel := context.WithTimeout(context.Background(), 15*time.Second)
+		defer closeCancel()
+		_ = d.Close(closeCtx)
+	}()
+
+	server := httptest.NewServer(api.Handler(d))
+	defer server.Close()
+	c := &client{t: t, base: server.URL, http: server.Client()}
+
+	llmConfig, _ := json.Marshal(map[string]any{
+		"base_url":            llm.URL + "/v1",
+		"api_key":             "test-key",
+		"allow_insecure_http": true,
+		"default_model":       "stub-model",
+		"capabilities":        []map[string]any{{"operation": "chat", "require_approval": false}},
+	})
+	memConfig, _ := json.Marshal(map[string]any{
+		"capabilities": []map[string]any{{"operation": "get"}},
+	})
+	manifest := aurora.Manifest{
+		Version: aurora.ManifestVersion,
+		Syscalls: []aurora.Syscall{
+			{Syscall: "core.openaiApi", Config: llmConfig, Hidden: true},
+			{Syscall: "core.memory", Config: memConfig},
+		},
+	}
+
+	var session dist.SessionLog
+	c.do(http.MethodPost, "/v1/sessions", map[string]any{}, &session)
+	var process aurora.ProcessSnapshot
+	c.do(http.MethodPost, "/v1/sessions/"+session.Session.ID+"/processes", map[string]any{
+		"input":    "keep going forever",
+		"manifest": manifest,
+	}, &process)
+
+	deadline := time.Now().Add(60 * time.Second)
+	for {
+		c.do(http.MethodGet, "/v1/processes/"+process.ID, nil, &process)
+		if process.Status == aurora.ProcessCompleted {
+			break
+		}
+		if process.Status == aurora.ProcessFailed || process.Status == aurora.ProcessStopped {
+			t.Fatalf("process finished as %s: %s", process.Status, process.Error)
+		}
+		if time.Now().After(deadline) {
+			t.Fatalf("timed out in %s after %d model calls — loop not capped", process.Status, calls.Load())
+		}
+		time.Sleep(50 * time.Millisecond)
+	}
+
+	if got := calls.Load(); got != 16 {
+		t.Fatalf("model called %d times, want exactly the 16-step cap", got)
+	}
+}
+
+// TestAgentSheddingRecoversOversizedRequest proves the guest degrades instead of
+// failing when a chat request exceeds the driver's max_request_bytes cap: it
+// sheds transcript bytes and retries until the request fits, so the process
+// completes. A tiny cap plus a large input forces the shedding path on the very
+// first turn.
+func TestAgentSheddingRecoversOversizedRequest(t *testing.T) {
+	wasm := buildProgram(t)
+	programsDir := t.TempDir()
+	writeProgramDir(t, programsDir, wasm)
+
+	llm := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if !strings.HasSuffix(r.URL.Path, "/chat/completions") {
+			http.NotFound(w, r)
+			return
+		}
+		reply := `{"actions":[{"action":"final","content":{"answer":"done despite the flood"}}]}`
+		payload, _ := json.Marshal(map[string]any{
+			"choices": []any{map[string]any{"message": map[string]any{"content": reply}}},
+		})
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write(payload)
+	}))
+	defer llm.Close()
+
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	d, err := dist.New(ctx, dist.Config{
+		ProgramsDir: programsDir,
+		TaskSecret:  []byte("e2e-secret"),
+		Logger:      slog.New(slog.NewTextHandler(io.Discard, nil)),
+	})
+	if err != nil {
+		t.Fatalf("assemble distribution: %v", err)
+	}
+	defer func() {
+		closeCtx, closeCancel := context.WithTimeout(context.Background(), 15*time.Second)
+		defer closeCancel()
+		_ = d.Close(closeCtx)
+	}()
+
+	server := httptest.NewServer(api.Handler(d))
+	defer server.Close()
+	c := &client{t: t, base: server.URL, http: server.Client()}
+
+	// A tiny 8 KB request cap: the first chat request (system prompt + a ~36 KB
+	// input) far exceeds it, so the guest must shed to get under it.
+	llmConfig, _ := json.Marshal(map[string]any{
+		"base_url":            llm.URL + "/v1",
+		"api_key":             "test-key",
+		"allow_insecure_http": true,
+		"default_model":       "stub-model",
+		"max_request_bytes":   8000,
+		"capabilities":        []map[string]any{{"operation": "chat", "require_approval": false}},
+	})
+	manifest := aurora.Manifest{
+		Version: aurora.ManifestVersion,
+		Syscalls: []aurora.Syscall{
+			{Syscall: "core.openaiApi", Config: llmConfig, Hidden: true},
+		},
+	}
+
+	var session dist.SessionLog
+	c.do(http.MethodPost, "/v1/sessions", map[string]any{}, &session)
+	var process aurora.ProcessSnapshot
+	c.do(http.MethodPost, "/v1/sessions/"+session.Session.ID+"/processes", map[string]any{
+		"input":    strings.Repeat("flood ", 6000), // ~36 KB, dwarfing the 8 KB cap
+		"manifest": manifest,
+	}, &process)
+
+	deadline := time.Now().Add(60 * time.Second)
+	for {
+		c.do(http.MethodGet, "/v1/processes/"+process.ID, nil, &process)
+		if process.Status == aurora.ProcessCompleted {
+			break
+		}
+		if process.Status == aurora.ProcessFailed || process.Status == aurora.ProcessStopped {
+			t.Fatalf("process finished as %s: %s (shedding did not recover)", process.Status, process.Error)
+		}
+		if time.Now().After(deadline) {
+			t.Fatalf("timed out in %s", process.Status)
+		}
+		time.Sleep(50 * time.Millisecond)
+	}
+	if process.Answer != "done despite the flood" {
+		t.Fatalf("answer = %q", process.Answer)
+	}
+}
