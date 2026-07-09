@@ -77,3 +77,22 @@ func TestCeilingRefusesUnknownSyscalls(t *testing.T) {
 		t.Fatal("an unknown syscall must be refused by the ceiling")
 	}
 }
+
+// The ceiling must recognize every capability the distribution's registry can
+// build — filesystem and scratch included — or a non-empty ceiling silently
+// fail-closes grants the operator explicitly listed (a drift bug, not a leak).
+func TestCeilingGatesFilesystemAndScratch(t *testing.T) {
+	c := newCeiling([]string{"core.filesystem", "core.scratch"})
+	granted := manifestWith(
+		aurora.Syscall{Syscall: "core.filesystem"},
+		aurora.Syscall{Syscall: "core.scratch"},
+	)
+	if err := c.check(granted); err != nil {
+		t.Fatalf("a ceiling listing filesystem/scratch must admit their grants: %v", err)
+	}
+	// A ceiling that omits them still refuses (the gate stays real).
+	if err := newCeiling([]string{"core.memory"}).check(
+		manifestWith(aurora.Syscall{Syscall: "core.filesystem"})); err == nil {
+		t.Fatal("a ceiling without core.filesystem must refuse the grant")
+	}
+}

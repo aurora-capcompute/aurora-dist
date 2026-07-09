@@ -766,6 +766,10 @@ func TestAgentOffloadsLargeInternetRead(t *testing.T) {
 	})
 	internetConfig, _ := json.Marshal(map[string]any{
 		"capabilities": []map[string]any{{"methods": []string{"GET"}, "domain": internet.URL}},
+		// The test target is a loopback httptest server, which the SSRF guard
+		// blocks by default; opt in as a real deployment reaching an internal
+		// service would.
+		"allow_private_network": true,
 	})
 	// Offload lands in core.scratch — process-local and ephemeral, never the
 	// durable tenant memory.

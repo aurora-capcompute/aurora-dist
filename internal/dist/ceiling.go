@@ -5,9 +5,11 @@ import (
 	"strings"
 
 	"github.com/aurora-capcompute/aurora-capcompute/aurora"
+	"github.com/aurora-capcompute/aurora-dispatchers/filesystem"
 	"github.com/aurora-capcompute/aurora-dispatchers/internet"
 	"github.com/aurora-capcompute/aurora-dispatchers/memory"
 	"github.com/aurora-capcompute/aurora-dispatchers/openaillm"
+	"github.com/aurora-capcompute/aurora-dispatchers/registry"
 	"github.com/aurora-capcompute/capcompute/sys"
 )
 
@@ -65,6 +67,8 @@ func (c *ceiling) check(manifest aurora.Manifest) error {
 //	sys.timer                   → sys.timer (the runtime's own)
 //	core.internet               → core.internet
 //	core.memory                 → core.memory
+//	core.scratch                → core.scratch
+//	core.filesystem             → core.filesystem
 //	core.openaiApi              → core.openaiApi
 //	sys.spawn                   → nothing external (each spawnable program is
 //	                              granted at the same door, recursively)
@@ -87,6 +91,10 @@ func grantedNames(syscalls []aurora.Syscall) ([]sys.Capability, error) {
 			add(internet.Capability)
 		case memory.Capability:
 			add(memory.Capability)
+		case registry.ScratchCapability:
+			add(registry.ScratchCapability)
+		case filesystem.Capability:
+			add(filesystem.Capability)
 		case openaillm.SyscallType:
 			add(openaillm.SyscallType)
 		default:

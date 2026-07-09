@@ -27,6 +27,16 @@ import (
 
 var version = "dev"
 
+// minTaskSecretBytes is the floor for the HMAC key that authenticates task
+// resolution tokens; a trivially short secret is rejected rather than accepted.
+const minTaskSecretBytes = 16
+
+// defaultAddr binds loopback, not all interfaces. The API has no principal auth
+// (single-trusted-client posture), so exposing it on every interface by default
+// would let anything that can reach the port create processes and resolve tasks.
+// An operator who fronts it with auth/network isolation sets -addr explicitly.
+const defaultAddr = "127.0.0.1:8080"
+
 // fileConfig is the optional JSON config file. Flags override its fields.
 type fileConfig struct {
 	Addr     string `json:"addr,omitempty"`
@@ -94,6 +104,9 @@ func run() error {
 	if err != nil {
 		return err
 	}
+	if len(taskSecret) < minTaskSecretBytes {
+		return fmt.Errorf("AURORA_TASK_SECRET must be at least %d bytes (task-token HMAC key)", minTaskSecretBytes)
+	}
 
 	ctx, cancel := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
 	defer cancel()
@@ -129,7 +142,7 @@ func run() error {
 	}()
 
 	server := &http.Server{
-		Addr:    pick(*addr, cfg.Addr, ":8080"),
+		Addr:    pick(*addr, cfg.Addr, defaultAddr),
 		Handler: api.Handler(d),
 	}
 	errs := make(chan error, 1)
