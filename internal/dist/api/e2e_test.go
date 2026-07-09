@@ -684,6 +684,132 @@ func TestAgentSalvagesProseReply(t *testing.T) {
 	}
 }
 
+// TestAgentOffloadsLargeInternetRead proves a large fetched body is offloaded to
+// the store instead of inlined into the transcript: after a GET returns a body
+// well past the offload threshold, the model's next turn sees a reference
+// (stored_key + summary + a short excerpt), never the full body — so a deep tail
+// marker that sits past the excerpt can only reach the model if offloading
+// failed.
+func TestAgentOffloadsLargeInternetRead(t *testing.T) {
+	wasm := buildProgram(t)
+	programsDir := t.TempDir()
+	writeProgramDir(t, programsDir, wasm)
+
+	const deepMarker = "DEEP_BODY_SENTINEL_should_never_reach_the_model"
+	// ~110 KB, past the 48 KB offload threshold; the marker sits at the very end,
+	// well beyond the 2 KB head excerpt.
+	bigBody := strings.Repeat("lorem ipsum dolor sit amet consectetur adipiscing elit. ", 2000) + deepMarker
+
+	internet := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Content-Type", "text/plain")
+		_, _ = io.WriteString(w, bigBody)
+	}))
+	defer internet.Close()
+
+	var sawStoredKey, leaked atomic.Bool
+	llm := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if !strings.HasSuffix(r.URL.Path, "/chat/completions") {
+			http.NotFound(w, r)
+			return
+		}
+		body, _ := io.ReadAll(r.Body)
+		var reply string
+		switch {
+		case bytes.Contains(body, []byte("compress a web page")):
+			// The fetch summarizer — a self-contained chat; reply with prose.
+			reply = "The page is placeholder lorem-ipsum text with no substantive content."
+		case bytes.Contains(body, []byte("stored_key")):
+			// The agent's turn after the offload: it must see the reference, not
+			// the full body.
+			sawStoredKey.Store(true)
+			if bytes.Contains(body, []byte(deepMarker)) {
+				leaked.Store(true)
+			}
+			reply = `{"actions":[{"action":"final","content":{"answer":"done"}}]}`
+		default:
+			reply = fmt.Sprintf(`{"actions":[{"action":"core.internet","content":{"method":"GET","url":%q}}]}`, internet.URL+"/page")
+		}
+		payload, _ := json.Marshal(map[string]any{
+			"choices": []any{map[string]any{"message": map[string]any{"content": reply}}},
+		})
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write(payload)
+	}))
+	defer llm.Close()
+
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	d, err := dist.New(ctx, dist.Config{
+		ProgramsDir: programsDir,
+		TaskSecret:  []byte("e2e-secret"),
+		Logger:      slog.New(slog.NewTextHandler(io.Discard, nil)),
+	})
+	if err != nil {
+		t.Fatalf("assemble distribution: %v", err)
+	}
+	defer func() {
+		closeCtx, closeCancel := context.WithTimeout(context.Background(), 15*time.Second)
+		defer closeCancel()
+		_ = d.Close(closeCtx)
+	}()
+
+	server := httptest.NewServer(api.Handler(d))
+	defer server.Close()
+	c := &client{t: t, base: server.URL, http: server.Client()}
+
+	llmConfig, _ := json.Marshal(map[string]any{
+		"base_url":            llm.URL + "/v1",
+		"api_key":             "test-key",
+		"allow_insecure_http": true,
+		"default_model":       "stub-model",
+		"capabilities":        []map[string]any{{"operation": "chat", "require_approval": false}},
+	})
+	internetConfig, _ := json.Marshal(map[string]any{
+		"capabilities": []map[string]any{{"methods": []string{"GET"}, "domain": internet.URL}},
+	})
+	memConfig, _ := json.Marshal(map[string]any{
+		"capabilities": []map[string]any{{"operation": "put"}, {"operation": "search"}},
+	})
+	manifest := aurora.Manifest{
+		Version: aurora.ManifestVersion,
+		Syscalls: []aurora.Syscall{
+			{Syscall: "core.openaiApi", Config: llmConfig, Hidden: true},
+			{Syscall: "core.internet", Config: internetConfig},
+			{Syscall: "core.memory", Config: memConfig},
+		},
+	}
+
+	var session dist.SessionLog
+	c.do(http.MethodPost, "/v1/sessions", map[string]any{}, &session)
+	var process aurora.ProcessSnapshot
+	c.do(http.MethodPost, "/v1/sessions/"+session.Session.ID+"/processes", map[string]any{
+		"input":    "research the page",
+		"manifest": manifest,
+	}, &process)
+
+	deadline := time.Now().Add(60 * time.Second)
+	for {
+		c.do(http.MethodGet, "/v1/processes/"+process.ID, nil, &process)
+		if process.Status == aurora.ProcessCompleted {
+			break
+		}
+		if process.Status == aurora.ProcessFailed || process.Status == aurora.ProcessStopped {
+			t.Fatalf("process finished as %s: %s", process.Status, process.Error)
+		}
+		if time.Now().After(deadline) {
+			t.Fatalf("timed out in %s", process.Status)
+		}
+		time.Sleep(50 * time.Millisecond)
+	}
+
+	if !sawStoredKey.Load() {
+		t.Fatal("the model never saw an offloaded observation (stored_key) — offload did not trigger")
+	}
+	if leaked.Load() {
+		t.Fatal("the full response body reached the model — it was inlined, not offloaded")
+	}
+}
+
 // TestAgentSheddingRecoversOversizedRequest proves the guest degrades instead of
 // failing when a chat request exceeds the driver's max_request_bytes cap: it
 // sheds transcript bytes and retries until the request fits, so the process
