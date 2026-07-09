@@ -597,6 +597,93 @@ func TestAgentLoopIsCapped(t *testing.T) {
 	}
 }
 
+// TestAgentSalvagesProseReply proves the guest does not fail when the model
+// answers directly in prose instead of the JSON action envelope (a common
+// break from smaller or non-OpenAI models): the reply is salvaged as the final
+// answer, so the process completes carrying that prose rather than dying with
+// "invalid model JSON".
+func TestAgentSalvagesProseReply(t *testing.T) {
+	wasm := buildProgram(t)
+	programsDir := t.TempDir()
+	writeProgramDir(t, programsDir, wasm)
+
+	const prose = "Warp is a modern terminal with AI features and block-based output."
+	llm := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if !strings.HasSuffix(r.URL.Path, "/chat/completions") {
+			http.NotFound(w, r)
+			return
+		}
+		// Reply with bare prose — no {"actions":[...]} envelope at all.
+		payload, _ := json.Marshal(map[string]any{
+			"choices": []any{map[string]any{"message": map[string]any{"content": prose}}},
+		})
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write(payload)
+	}))
+	defer llm.Close()
+
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	d, err := dist.New(ctx, dist.Config{
+		ProgramsDir: programsDir,
+		TaskSecret:  []byte("e2e-secret"),
+		Logger:      slog.New(slog.NewTextHandler(io.Discard, nil)),
+	})
+	if err != nil {
+		t.Fatalf("assemble distribution: %v", err)
+	}
+	defer func() {
+		closeCtx, closeCancel := context.WithTimeout(context.Background(), 15*time.Second)
+		defer closeCancel()
+		_ = d.Close(closeCtx)
+	}()
+
+	server := httptest.NewServer(api.Handler(d))
+	defer server.Close()
+	c := &client{t: t, base: server.URL, http: server.Client()}
+
+	llmConfig, _ := json.Marshal(map[string]any{
+		"base_url":            llm.URL + "/v1",
+		"api_key":             "test-key",
+		"allow_insecure_http": true,
+		"default_model":       "stub-model",
+		"capabilities":        []map[string]any{{"operation": "chat", "require_approval": false}},
+	})
+	manifest := aurora.Manifest{
+		Version: aurora.ManifestVersion,
+		Syscalls: []aurora.Syscall{
+			{Syscall: "core.openaiApi", Config: llmConfig, Hidden: true},
+		},
+	}
+
+	var session dist.SessionLog
+	c.do(http.MethodPost, "/v1/sessions", map[string]any{}, &session)
+	var process aurora.ProcessSnapshot
+	c.do(http.MethodPost, "/v1/sessions/"+session.Session.ID+"/processes", map[string]any{
+		"input":    "is warp a good terminal emulator?",
+		"manifest": manifest,
+	}, &process)
+
+	deadline := time.Now().Add(60 * time.Second)
+	for {
+		c.do(http.MethodGet, "/v1/processes/"+process.ID, nil, &process)
+		if process.Status == aurora.ProcessCompleted {
+			break
+		}
+		if process.Status == aurora.ProcessFailed || process.Status == aurora.ProcessStopped {
+			t.Fatalf("process finished as %s: %s", process.Status, process.Error)
+		}
+		if time.Now().After(deadline) {
+			t.Fatalf("timed out in %s", process.Status)
+		}
+		time.Sleep(50 * time.Millisecond)
+	}
+
+	if process.Answer != prose {
+		t.Fatalf("answer = %q, want the salvaged prose %q", process.Answer, prose)
+	}
+}
+
 // TestAgentSheddingRecoversOversizedRequest proves the guest degrades instead of
 // failing when a chat request exceeds the driver's max_request_bytes cap: it
 // sheds transcript bytes and retries until the request fits, so the process
