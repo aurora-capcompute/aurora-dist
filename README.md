@@ -167,7 +167,7 @@ capabilities the agent may use. Point `$AURORA_MANIFEST` at a file like:
     {
       "syscall": "core.openaiApi", "hidden": true,
       "base_url": "https://api.openai.com/v1",
-      "api_key": "sk-...",
+      "api_key": {"secret": "OPENAI_KEY"},
       "default_model": "gpt-4o",
       "capabilities": [{"operation": "chat", "require_approval": false}]
     },
@@ -177,6 +177,17 @@ capabilities the agent may use. Point `$AURORA_MANIFEST` at a file like:
   ]
 }
 ```
+
+The `api_key` here is a **secret reference**, not the key itself: the value is
+resolved host‑side from the matching environment variable and never enters the
+manifest, journal, or guest. Set it before starting the server:
+
+```sh
+export AURORA_SECRET_OPENAI_KEY=sk-...        # or AURORA_SECRET_OPENAI_KEY_FILE=/run/secrets/openai
+```
+
+(A literal `"api_key": "sk-..."` still works but is discouraged — it puts the key in
+the manifest file.)
 
 > **Security note.** There is deliberately **no principal/API authentication** —
 > `aurora-dist` serves one trusted local client, so it binds to `127.0.0.1` by
