@@ -1,7 +1,7 @@
 github.com/aurora-capcompute/aurora-capcompute v0.0.0-20260709184333-4338d13195d4 h1:KBd3kDw778N9hu33bsPJkXE9oKozOkONRCHTmj1qhxY=
 github.com/aurora-capcompute/aurora-capcompute v0.0.0-20260709184333-4338d13195d4/go.mod h1:L47vjANziidiTsH4244cGmPdVdXy16QxKzstQGmwfH8=
-github.com/aurora-capcompute/aurora-dispatchers v0.0.0-20260709203833-ac0995af5a7e h1:NVBWwCsrQeN7ByA/t2LIzqwii4GrRSRLcovWPcu/Uy4=
-github.com/aurora-capcompute/aurora-dispatchers v0.0.0-20260709203833-ac0995af5a7e/go.mod h1:IwHhJM2bvNrjlgEpYkXNvAOZhlseK+gGQHrx5ehlmtI=
+github.com/aurora-capcompute/aurora-dispatchers v0.0.0-20260709211916-db8270379a52 h1:3S1ug6UtLoWmbtzJf0eaibX8Ul/Witd9qMxsedQ59sg=
+github.com/aurora-capcompute/aurora-dispatchers v0.0.0-20260709211916-db8270379a52/go.mod h1:IwHhJM2bvNrjlgEpYkXNvAOZhlseK+gGQHrx5ehlmtI=
 github.com/aurora-capcompute/capcompute v0.0.0-20260709135355-d48e4a78c567 h1:msGYa9RQOixsyi0v4LFc+sNnl25F3FfEM/RMqV/1JQI=
 github.com/aurora-capcompute/capcompute v0.0.0-20260709135355-d48e4a78c567/go.mod h1:a3y4cEXoEQ4i8SPIkxcsIejWgE0w8nx4DHiSQz08R8A=
 github.com/davecgh/go-spew v1.1.2-0.20180830191138-d8f796af33cc h1:U9qPSI2PIWSS1VwoXQT9A3Wy9MM3WgvqSxFWenqJduM=
