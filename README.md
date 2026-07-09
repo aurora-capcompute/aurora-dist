@@ -42,12 +42,13 @@ The result is the deployable server that a client like
               │  HTTP /v1
          aurora-dist                         ◀── YOU ARE HERE (the server)
               │  assembled from…
-   ┌──────────┼─────────────────────┐
- aurora-       aurora-dispatchers     capcompute
- capcompute    (capability drivers)   (the kernel)
- (orchestr.)
-              │
-        aurora-brains                        ← the Wasm agent "programs" it loads and runs
+   ┌──────────┴──────────┐
+ aurora-capcompute    aurora-dispatchers     ← orchestration runtime + capability drivers
+   └──────────┬──────────┘
+              │  both built on
+         capcompute                          ← the kernel (the foundation)
+
+   aurora-brains  →  the Wasm agent "programs" it loads and runs
 ```
 
 ## What it does (features)
