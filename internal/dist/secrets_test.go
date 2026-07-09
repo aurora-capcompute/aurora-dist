@@ -13,6 +13,11 @@ func TestEnvSecretResolverResolves(t *testing.T) {
 		"AURORA_SECRET_BOTH_FILE":       "/secrets/both",
 		"AURORA_SECRET_BLANK":           "",
 		"AURORA_SECRET_EMPTY_FILE_FILE": "/secrets/empty",
+		// A direct env var carrying a trailing newline (from $(cat token), a .env
+		// line, or a k8s/secrets-manager injection) must be trimmed like the file
+		// form — otherwise the whitespace rides into e.g. an Authorization header.
+		"AURORA_SECRET_PADDED": "  tok-padded\n",
+		"AURORA_SECRET_WSONLY": "   \n\t",
 	}
 	files := map[string]string{
 		"/secrets/from_file": "  tok-from-file\n",
@@ -37,6 +42,8 @@ func TestEnvSecretResolverResolves(t *testing.T) {
 		wantOK    bool
 	}{
 		{"inline value", "ONYX_TOKEN", "tok-inline", true},
+		{"inline value is trimmed", "PADDED", "tok-padded", true},
+		{"whitespace-only inline value", "WSONLY", "", false},
 		{"file value is trimmed", "FROM_FILE", "tok-from-file", true},
 		{"file wins over inline", "BOTH", "file-wins", true},
 		{"unknown reference", "MISSING", "", false},

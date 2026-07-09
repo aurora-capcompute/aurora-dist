@@ -47,8 +47,14 @@ func (r EnvSecretResolver) Resolve(name string) (string, bool) {
 		value := strings.TrimSpace(string(raw))
 		return value, value != ""
 	}
-	if value, ok := r.lookup("AURORA_SECRET_" + name); ok && value != "" {
-		return value, true
+	if value, ok := r.lookup("AURORA_SECRET_" + name); ok {
+		// Trim as the _FILE path does. A stray trailing newline or space — common
+		// when the value comes from $(cat token), a .env line, or a secrets-manager
+		// env injection — would otherwise ride into the header (e.g. a bearer token)
+		// and the upstream would reject it. A credential never has meaningful
+		// surrounding whitespace, so trimming is safe and matches the file form.
+		value = strings.TrimSpace(value)
+		return value, value != ""
 	}
 	return "", false
 }
