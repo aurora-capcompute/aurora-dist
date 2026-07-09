@@ -49,6 +49,14 @@ type Config struct {
 	CapabilityCeiling []string
 	// TaskSecret derives task resolution tokens. Required.
 	TaskSecret []byte
+	// Secrets resolves manifest secret references (an injected Authorization
+	// token, an api_key) to their host-held values. Nil means no references may
+	// be used — a grant that references one fails to build, never at call time.
+	Secrets registry.SecretResolver
+	// AuditKey keys the credential fingerprints recorded when a secret is
+	// injected into a request (empty is allowed: a stable but unkeyed
+	// fingerprint). It is never the credential itself.
+	AuditKey []byte
 	// InstanceID identifies this instance for lease fencing.
 	InstanceID string
 
@@ -117,6 +125,8 @@ func New(ctx context.Context, cfg Config) (*Dist, error) {
 	}, registry.Services{
 		Tenant:      tenant,
 		MemoryStore: kv,
+		Secrets:     cfg.Secrets,
+		AuditKey:    cfg.AuditKey,
 	})
 
 	dir := programs.Dir{Path: cfg.ProgramsDir, Default: cfg.DefaultProgram}

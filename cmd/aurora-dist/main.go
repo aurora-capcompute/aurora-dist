@@ -108,6 +108,13 @@ func run() error {
 		return fmt.Errorf("AURORA_TASK_SECRET must be at least %d bytes (task-token HMAC key)", minTaskSecretBytes)
 	}
 
+	// The audit key keys the credential fingerprints recorded when a secret is
+	// injected. It is optional: unset yields a stable but unkeyed fingerprint.
+	auditKey, _, err := lookupSecretFromEnv("AURORA_AUDIT_KEY")
+	if err != nil {
+		return err
+	}
+
 	ctx, cancel := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
 	defer cancel()
 
@@ -123,6 +130,8 @@ func run() error {
 		DefaultProgram:         pick(*defaultProg, cfg.Programs.Default, ""),
 		CapabilityCeiling:      cfg.CapabilityCeiling,
 		TaskSecret:             taskSecret,
+		Secrets:                dist.NewEnvSecretResolver(),
+		AuditKey:               auditKey,
 		InstanceID:             cfg.InstanceID,
 		MaxConcurrentProcesses: cfg.MaxConcurrent,
 		MaxResidentProcesses:   cfg.MaxResident,
@@ -164,21 +173,35 @@ func run() error {
 	return nil
 }
 
-// secretFromEnv reads NAME, or the file NAME_FILE points at.
-func secretFromEnv(name string) ([]byte, error) {
-	if value := os.Getenv(name); value != "" {
-		return []byte(value), nil
+// lookupSecretFromEnv reads NAME, or the file NAME_FILE points at, reporting
+// whether either was set. A missing value is not an error here — the caller
+// decides whether it is required.
+func lookupSecretFromEnv(name string) (value []byte, ok bool, err error) {
+	if v := os.Getenv(name); v != "" {
+		return []byte(v), true, nil
 	}
 	if path := os.Getenv(name + "_FILE"); path != "" {
 		raw, err := os.ReadFile(path)
 		if err != nil {
-			return nil, fmt.Errorf("read %s_FILE: %w", name, err)
+			return nil, false, fmt.Errorf("read %s_FILE: %w", name, err)
 		}
 		secret := strings.TrimSpace(string(raw))
 		if secret == "" {
-			return nil, fmt.Errorf("%s_FILE is empty", name)
+			return nil, false, fmt.Errorf("%s_FILE is empty", name)
 		}
-		return []byte(secret), nil
+		return []byte(secret), true, nil
 	}
-	return nil, fmt.Errorf("%s (or %s_FILE) is required", name, name)
+	return nil, false, nil
+}
+
+// secretFromEnv reads a required secret: NAME, or the file NAME_FILE points at.
+func secretFromEnv(name string) ([]byte, error) {
+	value, ok, err := lookupSecretFromEnv(name)
+	if err != nil {
+		return nil, err
+	}
+	if !ok {
+		return nil, fmt.Errorf("%s (or %s_FILE) is required", name, name)
+	}
+	return value, nil
 }
