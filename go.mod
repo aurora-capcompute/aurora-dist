@@ -4,7 +4,7 @@ go 1.26
 
 require (
 	github.com/aurora-capcompute/aurora-capcompute v0.0.0-20260708152823-f04cc466a5b4
-	github.com/aurora-capcompute/aurora-dispatchers v0.0.0-20260709093622-aad93184282d
+	github.com/aurora-capcompute/aurora-dispatchers v0.0.0-20260709124613-28cc93790280
 	github.com/aurora-capcompute/capcompute v0.0.0-20260708142052-0dd15c4d6286
 	github.com/mattn/go-sqlite3 v1.14.47
 )

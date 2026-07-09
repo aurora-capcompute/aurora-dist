@@ -767,15 +767,17 @@ func TestAgentOffloadsLargeInternetRead(t *testing.T) {
 	internetConfig, _ := json.Marshal(map[string]any{
 		"capabilities": []map[string]any{{"methods": []string{"GET"}, "domain": internet.URL}},
 	})
-	memConfig, _ := json.Marshal(map[string]any{
-		"capabilities": []map[string]any{{"operation": "put"}, {"operation": "search"}},
+	// Offload lands in core.scratch — process-local and ephemeral, never the
+	// durable tenant memory.
+	scratchConfig, _ := json.Marshal(map[string]any{
+		"capabilities": []map[string]any{{"operation": "put"}, {"operation": "get"}, {"operation": "search"}},
 	})
 	manifest := aurora.Manifest{
 		Version: aurora.ManifestVersion,
 		Syscalls: []aurora.Syscall{
 			{Syscall: "core.openaiApi", Config: llmConfig, Hidden: true},
 			{Syscall: "core.internet", Config: internetConfig},
-			{Syscall: "core.memory", Config: memConfig},
+			{Syscall: "core.scratch", Config: scratchConfig},
 		},
 	}
 

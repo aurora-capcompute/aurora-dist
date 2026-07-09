@@ -111,6 +111,7 @@ func New(ctx context.Context, cfg Config) (*Dist, error) {
 	provider := newProvider([]registry.Registration{
 		registry.InternetRegistration{},
 		registry.MemoryRegistration{},
+		registry.ScratchRegistration{},
 		registry.FilesystemRegistration{},
 		openaillm.Registration{},
 	}, registry.Services{
