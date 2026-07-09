@@ -21,10 +21,11 @@ import (
 // credential the guest never sees, and the guest cannot reach anything else on
 // the origin. Loopback http is used only so the test can observe the request.
 func TestProviderTemplateEndToEnd(t *testing.T) {
-	var gotAuth, gotPath, gotBody string
+	var gotAuth, gotPath, gotBody, gotContentType string
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		gotAuth = r.Header.Get("Authorization")
 		gotPath = r.URL.Path
+		gotContentType = r.Header.Get("Content-Type")
 		body, _ := io.ReadAll(r.Body)
 		gotBody = string(body)
 		_, _ = w.Write([]byte(`{"answer":"ok"}`))
@@ -74,6 +75,10 @@ func TestProviderTemplateEndToEnd(t *testing.T) {
 	}
 	if gotBody != `{"message":"What is Hwaas?","persona_id":0}` {
 		t.Fatalf("body at the server = %q, want the templated body", gotBody)
+	}
+	// A JSON API needs the body declared, or it 422s the request as unparsed.
+	if gotContentType != "application/json" {
+		t.Fatalf("Content-Type at the server = %q, want application/json", gotContentType)
 	}
 }
 
