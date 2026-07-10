@@ -96,3 +96,16 @@ func TestCeilingGatesFilesystemAndScratch(t *testing.T) {
 		t.Fatal("a ceiling without core.filesystem must refuse the grant")
 	}
 }
+
+// The read-only Kubernetes family is gated like any other: a ceiling listing it
+// admits the grant, one omitting it refuses.
+func TestCeilingGatesKubernetes(t *testing.T) {
+	if err := newCeiling([]string{"core.kubernetes"}).check(
+		manifestWith(aurora.Syscall{Syscall: "core.kubernetes"})); err != nil {
+		t.Fatalf("a ceiling listing core.kubernetes must admit its grant: %v", err)
+	}
+	if err := newCeiling([]string{"core.internet"}).check(
+		manifestWith(aurora.Syscall{Syscall: "core.kubernetes"})); err == nil {
+		t.Fatal("a ceiling without core.kubernetes must refuse the grant")
+	}
+}

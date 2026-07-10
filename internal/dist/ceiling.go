@@ -7,6 +7,7 @@ import (
 	"github.com/aurora-capcompute/aurora-capcompute/aurora"
 	"github.com/aurora-capcompute/aurora-dispatchers/filesystem"
 	"github.com/aurora-capcompute/aurora-dispatchers/internet"
+	"github.com/aurora-capcompute/aurora-dispatchers/k8s"
 	"github.com/aurora-capcompute/aurora-dispatchers/memory"
 	"github.com/aurora-capcompute/aurora-dispatchers/openaillm"
 	"github.com/aurora-capcompute/aurora-dispatchers/registry"
@@ -95,6 +96,8 @@ func grantedNames(syscalls []aurora.Syscall) ([]sys.Capability, error) {
 			add(registry.ScratchCapability)
 		case filesystem.Capability:
 			add(filesystem.Capability)
+		case k8s.Capability:
+			add(k8s.Capability)
 		case openaillm.SyscallType:
 			add(openaillm.SyscallType)
 		default:
