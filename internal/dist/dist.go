@@ -60,14 +60,6 @@ type Config struct {
 	// InstanceID identifies this instance for lease fencing.
 	InstanceID string
 
-	// KubernetesDisableList refuses any core.kubernetes grant that enables the
-	// list verb, so the driver is get-only cluster-wide. A testing-phase safety
-	// valve: with it set, no manifest can issue a (potentially heavy) list.
-	KubernetesDisableList bool
-	// KubernetesMaxListItems, when > 0, caps every core.kubernetes list page to
-	// at most this — regardless of a grant's own max_list_items.
-	KubernetesMaxListItems int
-
 	MaxConcurrentProcesses int
 	MaxResidentProcesses   int
 
@@ -130,10 +122,7 @@ func New(ctx context.Context, cfg Config) (*Dist, error) {
 		registry.ScratchRegistration{},
 		registry.FilesystemRegistration{},
 		registry.HTTPTemplateRegistration{},
-		registry.KubernetesRegistration{
-			DisableList:  cfg.KubernetesDisableList,
-			MaxListItems: cfg.KubernetesMaxListItems,
-		},
+		registry.KubernetesRegistration{},
 		openaillm.Registration{},
 	}, registry.Services{
 		Tenant:      tenant,
