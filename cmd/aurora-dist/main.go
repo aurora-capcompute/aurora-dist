@@ -17,6 +17,7 @@ import (
 	"net/http"
 	"os"
 	"os/signal"
+	"strconv"
 	"strings"
 	"syscall"
 	"time"
@@ -133,6 +134,8 @@ func run() error {
 		Secrets:                dist.NewEnvSecretResolver(),
 		AuditKey:               auditKey,
 		InstanceID:             cfg.InstanceID,
+		KubernetesDisableList:  envBool("AURORA_K8S_DISABLE_LIST"),
+		KubernetesMaxListItems: envInt("AURORA_K8S_MAX_LIST_ITEMS"),
 		MaxConcurrentProcesses: cfg.MaxConcurrent,
 		MaxResidentProcesses:   cfg.MaxResident,
 		TimerReconcileInterval: time.Duration(cfg.TimerReconcileSeconds) * time.Second,
@@ -171,6 +174,26 @@ func run() error {
 	defer shutdownCancel()
 	_ = server.Shutdown(shutdownCtx)
 	return nil
+}
+
+// envBool reports whether an env var is set to a truthy value — the switch for
+// deployment-wide toggles like AURORA_K8S_DISABLE_LIST.
+func envBool(name string) bool {
+	switch strings.ToLower(strings.TrimSpace(os.Getenv(name))) {
+	case "1", "true", "yes", "on":
+		return true
+	default:
+		return false
+	}
+}
+
+// envInt reads an env var as an int, returning 0 when unset or unparseable.
+func envInt(name string) int {
+	n, err := strconv.Atoi(strings.TrimSpace(os.Getenv(name)))
+	if err != nil {
+		return 0
+	}
+	return n
 }
 
 // lookupSecretFromEnv reads NAME, or the file NAME_FILE points at, reporting
