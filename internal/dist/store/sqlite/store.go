@@ -318,26 +318,31 @@ func (s *Store) Activity(ctx context.Context, tenant, activity string) (int64, b
 	return version, true, nil
 }
 
-// List returns a tenant's memory keys under a prefix, sorted.
-func (s *Store) List(ctx context.Context, tenant, prefix string) ([]string, error) {
+// List returns a tenant's memory keys under a prefix, sorted, each with the
+// provenance labels of its stored value so key names carry value taint.
+func (s *Store) List(ctx context.Context, tenant, prefix string) ([]drivermem.ListedKey, error) {
 	rows, err := s.db.QueryContext(ctx,
-		`SELECT key FROM memory_values WHERE tenant_id=? ORDER BY key`, tenant)
+		`SELECT key,labels FROM memory_values WHERE tenant_id=? ORDER BY key`, tenant)
 	if err != nil {
 		return nil, err
 	}
 	defer rows.Close()
 
-	var keys []string
+	var keys []drivermem.ListedKey
 	for rows.Next() {
-		var key string
-		if err := rows.Scan(&key); err != nil {
+		var key, rawLbls string
+		if err := rows.Scan(&key, &rawLbls); err != nil {
 			return nil, err
 		}
 		// Segment-aware, tolerant of a trailing slash: "notes" and "notes/" both
 		// list the "notes" subtree ("notes/a", …) but never the sibling "notes2".
 		base := strings.TrimSuffix(prefix, "/")
 		if prefix == "" || key == prefix || strings.HasPrefix(key, base+"/") {
-			keys = append(keys, key)
+			var labels []string
+			if err := json.Unmarshal([]byte(rawLbls), &labels); err != nil {
+				return nil, err
+			}
+			keys = append(keys, drivermem.ListedKey{Key: key, Labels: labels})
 		}
 	}
 	return keys, rows.Err()

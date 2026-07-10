@@ -86,12 +86,12 @@ func (s *KV) Activity(_ context.Context, tenant, activity string) (int64, bool, 
 	return version, done, nil
 }
 
-func (s *KV) List(_ context.Context, tenant, prefix string) ([]string, error) {
+func (s *KV) List(_ context.Context, tenant, prefix string) ([]drivermem.ListedKey, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	tenantPrefix := tenant + "\x00"
-	var keys []string
-	for id := range s.values {
+	var keys []drivermem.ListedKey
+	for id, entry := range s.values {
 		key, ok := strings.CutPrefix(id, tenantPrefix)
 		if !ok {
 			continue
@@ -100,9 +100,9 @@ func (s *KV) List(_ context.Context, tenant, prefix string) ([]string, error) {
 		// list the "notes" subtree ("notes/a", …) but never the sibling "notes2".
 		base := strings.TrimSuffix(prefix, "/")
 		if prefix == "" || key == prefix || strings.HasPrefix(key, base+"/") {
-			keys = append(keys, key)
+			keys = append(keys, drivermem.ListedKey{Key: key, Labels: append([]string(nil), entry.labels...)})
 		}
 	}
-	sort.Strings(keys)
+	sort.Slice(keys, func(i, j int) bool { return keys[i].Key < keys[j].Key })
 	return keys, nil
 }

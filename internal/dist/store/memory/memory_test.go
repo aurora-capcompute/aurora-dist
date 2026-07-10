@@ -89,7 +89,7 @@ func TestKVListDoesNotLeakSiblingSubtree(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		if len(keys) != 2 || keys[0] != "notes/a" || keys[1] != "notes/b" {
+		if len(keys) != 2 || keys[0].Key != "notes/a" || keys[1].Key != "notes/b" {
 			t.Fatalf("List(%q) = %v, want [notes/a notes/b]", prefix, keys)
 		}
 	}
@@ -128,7 +128,7 @@ func TestKVVersionedCompareAndSet(t *testing.T) {
 		t.Fatal(err)
 	}
 	keys, err := kv.List(ctx, "t", "notes/")
-	if err != nil || len(keys) != 2 || keys[0] != "notes/a" || keys[1] != "notes/b" {
+	if err != nil || len(keys) != 2 || keys[0].Key != "notes/a" || keys[1].Key != "notes/b" {
 		t.Fatalf("list = %v, %v", keys, err)
 	}
 }
@@ -179,7 +179,7 @@ func TestKVActivityMemory(t *testing.T) {
 	if _, _, _, ok, _ := kv.Get(ctx, "t", "act-1"); ok {
 		t.Fatal("activity record surfaced through Get")
 	}
-	if keys, _ := kv.List(ctx, "t", ""); len(keys) != 1 || keys[0] != "notes/a" {
+	if keys, _ := kv.List(ctx, "t", ""); len(keys) != 1 || keys[0].Key != "notes/a" {
 		t.Fatalf("list = %v, want only notes/a", keys)
 	}
 	// "" bypasses the activity memory: keyless writes stay at-least-once.

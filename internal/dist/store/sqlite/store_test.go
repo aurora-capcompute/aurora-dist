@@ -135,7 +135,7 @@ func TestMemoryKVDurable(t *testing.T) {
 		t.Fatal("tenants must not share values")
 	}
 	keys, err := reopened.List(ctx, "t", "notes/")
-	if err != nil || len(keys) != 1 || keys[0] != "notes/a" {
+	if err != nil || len(keys) != 1 || keys[0].Key != "notes/a" {
 		t.Fatalf("list = %v, %v", keys, err)
 	}
 }
@@ -200,7 +200,7 @@ func TestMemoryActivityExactlyOnceAcrossReopen(t *testing.T) {
 	if _, _, _, ok, _ := reopened.Get(ctx, "t", "act-1"); ok {
 		t.Fatal("activity record surfaced through Get")
 	}
-	if keys, _ := reopened.List(ctx, "t", ""); len(keys) != 1 || keys[0] != "notes/a" {
+	if keys, _ := reopened.List(ctx, "t", ""); len(keys) != 1 || keys[0].Key != "notes/a" {
 		t.Fatalf("list = %v, want only notes/a", keys)
 	}
 	// "" bypasses the activity memory: keyless writes stay at-least-once.
