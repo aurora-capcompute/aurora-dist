@@ -109,3 +109,30 @@ func TestCeilingGatesKubernetes(t *testing.T) {
 		t.Fatal("a ceiling without core.kubernetes must refuse the grant")
 	}
 }
+
+// core.httpTemplate is a registered provider, so the ceiling must recognize it —
+// otherwise a configured ceiling silently fail-closes a shipped capability the
+// operator explicitly listed (the drift the filesystem/scratch test warns of).
+func TestCeilingGatesHTTPTemplate(t *testing.T) {
+	tmpl := manifestWith(aurora.Syscall{Syscall: "core.httpTemplate"})
+	if err := newCeiling([]string{"core.httpTemplate"}).check(tmpl); err != nil {
+		t.Fatalf("a ceiling listing core.httpTemplate must admit its grant: %v", err)
+	}
+	if err := newCeiling([]string{"core.internet"}).check(tmpl); err == nil {
+		t.Fatal("a ceiling without core.httpTemplate must refuse the grant")
+	}
+}
+
+// sys.declassify is a valid runtime-served grant, so the ceiling gates it like
+// sys.timer — a ceiling listing it admits it, one omitting it refuses — rather
+// than hitting the unknown-syscall refusal (which would break every declassify
+// grant whenever a ceiling is set).
+func TestCeilingGatesDeclassify(t *testing.T) {
+	decl := manifestWith(aurora.Syscall{Syscall: aurora.DeclassifySyscall})
+	if err := newCeiling([]string{aurora.DeclassifySyscall}).check(decl); err != nil {
+		t.Fatalf("a ceiling listing sys.declassify must admit its grant: %v", err)
+	}
+	if err := newCeiling([]string{"core.internet"}).check(decl); err == nil {
+		t.Fatal("a ceiling without sys.declassify must refuse the grant")
+	}
+}

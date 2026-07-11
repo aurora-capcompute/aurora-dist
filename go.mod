@@ -3,14 +3,13 @@ module github.com/aurora-capcompute/aurora-dist
 go 1.26
 
 require (
-	github.com/aurora-capcompute/aurora-capcompute v0.0.0-20260710133941-0acdce5fa4d1
-	github.com/aurora-capcompute/aurora-dispatchers v0.0.0-20260711041048-f9a48deeec41
-	github.com/aurora-capcompute/capcompute v0.0.0-20260710133702-854dd3bb237d
+	github.com/aurora-capcompute/aurora-capcompute v0.0.0-20260711081941-b8fccc2581d2
+	github.com/aurora-capcompute/aurora-dispatchers v0.0.0-20260711082020-16837483c0e7
+	github.com/aurora-capcompute/capcompute v0.0.0-20260711075043-87f32dc79181
 	github.com/mattn/go-sqlite3 v1.14.47
 )
 
 require (
-	github.com/dlclark/regexp2 v1.12.0 // indirect
 	github.com/dylibso/observe-sdk/go v0.0.0-20240828172851-9145d8ad07e1 // indirect
 	github.com/extism/go-pdk v1.1.3 // indirect
 	github.com/extism/go-sdk v1.7.1 // indirect
@@ -18,7 +17,6 @@ require (
 	github.com/ianlancetaylor/demangle v0.0.0-20260505044615-1ff4bf46051f // indirect
 	github.com/openai/openai-go/v3 v3.41.1 // indirect
 	github.com/santhosh-tekuri/jsonschema/v6 v6.0.2 // indirect
-	github.com/stretchr/testify v1.11.1 // indirect
 	github.com/tetratelabs/wabin v0.0.0-20230304001439-f6f874872834 // indirect
 	github.com/tetratelabs/wazero v1.12.0 // indirect
 	github.com/tidwall/gjson v1.19.0 // indirect

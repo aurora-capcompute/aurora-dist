@@ -98,8 +98,16 @@ func grantedNames(syscalls []aurora.Syscall) ([]sys.Capability, error) {
 			add(filesystem.Capability)
 		case k8s.Capability:
 			add(k8s.Capability)
+		case registry.HTTPTemplateSyscall:
+			add(registry.HTTPTemplateSyscall)
 		case openaillm.SyscallType:
 			add(openaillm.SyscallType)
+		case aurora.DeclassifySyscall:
+			// sys.declassify is a valid runtime-served grant (like sys.timer); it
+			// must be gateable by the ceiling, not fall to the unknown-syscall
+			// refusal, which would break every manifest that grants it whenever a
+			// ceiling is set.
+			add(aurora.DeclassifySyscall)
 		default:
 			// Unknown syscalls fail manifest validation before the ceiling
 			// runs; refuse here too so the ceiling stays conservative.

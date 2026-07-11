@@ -15,7 +15,9 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"net"
 	"net/http"
+	"strings"
 
 	"github.com/aurora-capcompute/aurora-capcompute/aurora"
 
@@ -55,7 +57,36 @@ func Handler(d *dist.Dist) http.Handler {
 		w.WriteHeader(http.StatusOK)
 		_, _ = w.Write([]byte("ok"))
 	})
-	return mux
+	return guardRebinding(mux)
+}
+
+// guardRebinding defends the deliberately unauthenticated, loopback-scoped API
+// against DNS rebinding: a browser on the operator's machine, lured to a
+// malicious page, can be made to resolve an attacker-controlled domain to
+// 127.0.0.1 and issue "simple" cross-origin requests here — spawning a
+// capability-bearing process or reading session data. Such a request still
+// carries the attacker's DOMAIN in the Host header, so allowing only an IP
+// literal or "localhost" (an IP cannot be rebound) closes the vector without
+// affecting a loopback client, which connects by address.
+func guardRebinding(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if !allowedHost(r.Host) {
+			http.Error(w, "host not allowed", http.StatusForbidden)
+			return
+		}
+		next.ServeHTTP(w, r)
+	})
+}
+
+func allowedHost(host string) bool {
+	if host == "" {
+		return true // HTTP/1.0 or a proxy that stripped it — nothing to rebind
+	}
+	hostname := host
+	if h, _, err := net.SplitHostPort(host); err == nil {
+		hostname = h
+	}
+	return strings.EqualFold(hostname, "localhost") || net.ParseIP(hostname) != nil
 }
 
 type handler struct {
@@ -186,7 +217,13 @@ func (h *handler) resolveTask(w http.ResponseWriter, r *http.Request) {
 
 // --- helpers ---
 
+// maxRequestBody bounds a decoded request body. The API's payloads are small (a
+// manifest, a task resolution), so cap the read rather than pull an unbounded
+// stream into memory.
+const maxRequestBody = 4 << 20 // 4 MiB
+
 func readJSON(w http.ResponseWriter, r *http.Request, out any) bool {
+	r.Body = http.MaxBytesReader(w, r.Body, maxRequestBody)
 	if err := json.NewDecoder(r.Body).Decode(out); err != nil {
 		writeError(w, fmt.Errorf("%w: invalid request body: %v", aurora.ErrInvalid, err))
 		return false
@@ -199,10 +236,17 @@ func writeJSON(w http.ResponseWriter, payload any, err error) {
 		writeError(w, err)
 		return
 	}
-	w.Header().Set("Content-Type", "application/json")
-	if encodeErr := json.NewEncoder(w).Encode(payload); encodeErr != nil {
+	// Marshal fully before writing: encoding straight to the ResponseWriter would,
+	// on a mid-stream failure, have already sent 200 and a partial body and then
+	// try to write an error status on top (a superfluous WriteHeader and a corrupt
+	// response).
+	body, encodeErr := json.Marshal(payload)
+	if encodeErr != nil {
 		writeError(w, encodeErr)
+		return
 	}
+	w.Header().Set("Content-Type", "application/json")
+	_, _ = w.Write(body)
 }
 
 // errorBody is the one error shape the API emits: a human message plus a stable
