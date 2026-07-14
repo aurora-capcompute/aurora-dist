@@ -33,7 +33,7 @@ func (p *provider) Normalize(syscallType string, config json.RawMessage) (json.R
 
 func (p *provider) NewDispatcher(
 	ctx context.Context,
-	_ aurora.ProcessContext,
+	cred aurora.ProcessContext,
 	manifest aurora.Manifest,
 ) (sys.Dispatcher[aurora.ProcessContext], error) {
 	leaf := manifest.LeafSyscalls()
@@ -43,7 +43,19 @@ func (p *provider) NewDispatcher(
 			Syscall: grant.Syscall, Config: grant.Config, Hidden: grant.Hidden,
 		})
 	}
-	config, err := p.registry.Build(ctx, entries, p.services)
+	// Overlay the calling process's identity onto the deployment-scoped services.
+	// The memory driver resolves core.memory's session/process scopes from these
+	// ids and keys every physical entry under the tenant; all three come from the
+	// host-set credential, never the manifest, so no grant can reach another
+	// process, session, or tenant. A copy per call keeps p.services immutable and
+	// the mutation race-free under concurrent NewDispatcher.
+	services := p.services
+	services.SessionID = cred.SessionID
+	services.ProcessID = cred.ProcessID
+	if cred.TenantID != "" {
+		services.Tenant = cred.TenantID
+	}
+	config, err := p.registry.Build(ctx, entries, services)
 	if err != nil {
 		return nil, err
 	}

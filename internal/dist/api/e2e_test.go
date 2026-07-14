@@ -559,7 +559,7 @@ func TestAgentLoopIsCapped(t *testing.T) {
 		"capabilities":        []map[string]any{{"operation": "chat", "require_approval": false}},
 	})
 	memConfig, _ := json.Marshal(map[string]any{
-		"capabilities": []map[string]any{{"operation": "get"}},
+		"capabilities": []map[string]any{{"scope": "session", "operations": []string{"get"}}},
 	})
 	manifest := aurora.Manifest{
 		Version: aurora.ManifestVersion,
