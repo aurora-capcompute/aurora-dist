@@ -43,8 +43,8 @@ func TestFlowBlocksOnyxToInternetExfil(t *testing.T) {
 	// and an internet POST that forbids "onyx_data". Loopback http is used only so
 	// the test can observe (or not observe) the request reaching the wire.
 	var config builtin.Config
-	searchCfg := fmt.Sprintf(`{"allow_private_network":true,"operations":[`+
-		`{"name":"search_onyx","method":"POST","base_url":%q,"path":"/api/search",`+
+	searchCfg := fmt.Sprintf(`{"allow_private_network":true,"capabilities":[`+
+		`{"operation":"search_onyx","method":"POST","base_url":%q,"path":"/api/search",`+
 		`"body":{"query":"{{query}}"},"params":{"query":{"type":"string","required":true}},`+
 		`"labels":["onyx_data"]}]}`, onyx.URL)
 	if err := (registry.HTTPTemplateRegistration{}).Configure(context.Background(), json.RawMessage(searchCfg), registry.Services{}, &config); err != nil {

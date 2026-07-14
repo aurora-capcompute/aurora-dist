@@ -42,7 +42,7 @@ func TestProviderTemplateEndToEnd(t *testing.T) {
 		},
 	)
 	config := fmt.Sprintf(`{"base_url":%q,"allow_private_network":true,`+
-		`"operations":[{"name":"search","method":"POST","path":"/api/search",`+
+		`"capabilities":[{"operation":"search","method":"POST","path":"/api/search",`+
 		`"inject_headers":{"Authorization":{"secret":"ONYX_TOKEN","prefix":"Bearer "}},`+
 		`"body":{"message":"{{query}}","persona_id":0},`+
 		`"params":{"query":{"type":"string","required":true}}}]}`, server.URL)
@@ -95,7 +95,7 @@ func TestProviderTemplateFailsClosedOnMissingSecret(t *testing.T) {
 			{Syscall: "core.httpTemplate", Config: json.RawMessage(
 				`{"base_url":"https://onyx.example.com",` +
 					`"inject_headers":{"Authorization":{"secret":"ONYX_TOKEN","prefix":"Bearer "}},` +
-					`"operations":[{"name":"search","method":"POST","path":"/api/search"}]}`)},
+					`"capabilities":[{"operation":"search","method":"POST","path":"/api/search"}]}`)},
 		},
 	}
 	if _, err := provider.NewDispatcher(context.Background(), aurora.ProcessContext{}, manifest); err == nil {
