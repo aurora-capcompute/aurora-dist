@@ -27,7 +27,7 @@ func TestProviderEnforcesMountFlow(t *testing.T) {
 			{Syscall: "core.internet", Config: json.RawMessage(`{"capabilities":[{"methods":["GET"],"domain":"example.com","labels":["untrusted_web"]}]}`)},
 			// The mount forbids untrusted_web: the write is guarded, the read is open.
 			// A shared space needs no process identity, so the empty cred below builds.
-			{Syscall: "core.memory", Config: json.RawMessage(`{"capabilities":[{"scope":"shared:notes","operations":["get","put"],"taints":["untrusted_web"]}]}`)},
+			{Syscall: "core.memory", Config: json.RawMessage(`{"capabilities":[{"scope":"shared","space":"notes","operations":["get","put"],"taints":["untrusted_web"]}]}`)},
 		},
 	}
 	dispatcher, err := provider.NewDispatcher(context.Background(), aurora.ProcessContext{}, manifest)
@@ -48,7 +48,7 @@ func TestProviderEnforcesMountFlow(t *testing.T) {
 
 	put := func(ctx context.Context) sys.SyscallResult {
 		result, err := dispatcher.Dispatch(ctx, aurora.ProcessContext{}, sys.Syscall{
-			Name: "core.memory", Args: json.RawMessage(`{"operation":"put","scope":"shared:notes","key":"k","value":"v"}`)}, sys.Authorization{})
+			Name: "core.memory", Args: json.RawMessage(`{"operation":"put","scope":"shared","space":"notes","key":"k","value":"v"}`)}, sys.Authorization{})
 		if err != nil {
 			t.Fatalf("dispatch put: %v", err)
 		}
@@ -78,7 +78,7 @@ func TestProviderWiresCredentialIntoMemoryScopes(t *testing.T) {
 	)
 	config := json.RawMessage(`{"capabilities":[
 		{"scope":"session","operations":["get","put"]},
-		{"scope":"shared:team","operations":["get","put"]}
+		{"scope":"shared","space":"team","operations":["get","put"]}
 	]}`)
 	manifest := aurora.Manifest{
 		Version:  aurora.ManifestVersion,
@@ -126,10 +126,10 @@ func TestProviderWiresCredentialIntoMemoryScopes(t *testing.T) {
 	}
 
 	// A named shared space is the sanctioned crossing between the two sessions.
-	if r := dispatch(one, `{"operation":"put","scope":"shared:team","key":"k","value":"shared"}`); r.Status() != sys.StatusResult {
+	if r := dispatch(one, `{"operation":"put","scope":"shared","space":"team","key":"k","value":"shared"}`); r.Status() != sys.StatusResult {
 		t.Fatalf("s1 shared put = %#v", r)
 	}
-	if !found(dispatch(two, `{"operation":"get","scope":"shared:team","key":"k"}`)) {
+	if !found(dispatch(two, `{"operation":"get","scope":"shared","space":"team","key":"k"}`)) {
 		t.Fatal("named shared space did not cross sessions")
 	}
 }
