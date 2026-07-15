@@ -207,6 +207,8 @@ the manifest file.)
 | `POST /v1/processes/{id}/stop` · `/retry` | steer (`{"mode":"resume"\|"restart"}`) |
 | `POST /v1/tasks/{id}/resolve` | `{resolution_token, resolution:{decision,…}}` |
 | `GET /v1/programs` | the loaded programs, each with its interface schema |
+| `GET /v1/memory?prefix=` | **read‑only** memory browse: stored keys (+ provenance labels) under a prefix — keys are slash‑paths under `p/<proc>`, `s/<session>`, `shared/<space>` |
+| `GET /v1/memory/value?key=` | one stored value with its version + labels (`found:false` if absent). No write route: memory is written only through the journaled `core.memory` syscall, so taint stamping can't be bypassed |
 | `GET /healthz` | returns `ok` |
 
 `GET /v1/sessions/{id}` returns everything about a session — metadata, history, and

@@ -83,6 +83,11 @@ type Dist struct {
 	loopCancel context.CancelFunc
 	closers    []io.Closer
 	logger     *slog.Logger
+	// memoryKV and tenant back the read-only memory view (MemoryList /
+	// MemoryValue): the same store and tenant the core.memory driver writes,
+	// exposed to the trusted operator plane for inspection only.
+	memoryKV drivermem.Store
+	tenant   string
 }
 
 // New assembles and starts a distribution: stores, driver registry, runtime
@@ -174,6 +179,8 @@ func New(ctx context.Context, cfg Config) (*Dist, error) {
 		loopCancel: loopCancel,
 		closers:    closers,
 		logger:     logger,
+		memoryKV:   kv,
+		tenant:     tenant,
 	}
 	// Timers reconcile their armed set against runtime state on a ticker (and
 	// once now, for boot recovery); the programs directory is re-scanned into
