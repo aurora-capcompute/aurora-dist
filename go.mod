@@ -3,10 +3,10 @@ module github.com/aurora-capcompute/aurora-dist
 go 1.26
 
 require (
-	github.com/aurora-capcompute/aurora-capcompute v0.0.0-20260711081941-b8fccc2581d2
-	github.com/aurora-capcompute/aurora-dispatchers v0.0.0-20260715093557-e1d37bf1b45f
-	github.com/aurora-capcompute/capcompute v0.0.0-20260711075043-87f32dc79181
-	github.com/mattn/go-sqlite3 v1.14.47
+	github.com/aurora-capcompute/aurora-capcompute v0.0.0-20260715125500-45b75d7ded96
+	github.com/aurora-capcompute/aurora-dispatchers v0.0.0-20260715125746-5a0b5a690b9d
+	github.com/aurora-capcompute/capcompute v0.0.0-20260715093859-0eca97a8b4e0
+	github.com/mattn/go-sqlite3 v1.14.48
 )
 
 require (
@@ -15,7 +15,7 @@ require (
 	github.com/extism/go-sdk v1.7.1 // indirect
 	github.com/gobwas/glob v0.2.3 // indirect
 	github.com/ianlancetaylor/demangle v0.0.0-20260505044615-1ff4bf46051f // indirect
-	github.com/openai/openai-go/v3 v3.41.1 // indirect
+	github.com/openai/openai-go/v3 v3.43.0 // indirect
 	github.com/santhosh-tekuri/jsonschema/v6 v6.0.2 // indirect
 	github.com/tetratelabs/wabin v0.0.0-20230304001439-f6f874872834 // indirect
 	github.com/tetratelabs/wazero v1.12.0 // indirect
