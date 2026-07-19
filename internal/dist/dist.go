@@ -156,7 +156,6 @@ func New(ctx context.Context, cfg Config) (*Dist, error) {
 		Dispatchers:            provider,
 		Log:                    log,
 		Leases:                 leases,
-		ProcessTable:           memory.NewProcessTable[string, aurora.ProcessContext](),
 		TenantID:               tenant,
 		TaskSecret:             cfg.TaskSecret,
 		InstanceID:             instanceID,

@@ -11,23 +11,6 @@ import (
 	drivermem "github.com/aurora-capcompute/aurora-dispatchers/memory"
 )
 
-func TestProcessTableRoundTrip(t *testing.T) {
-	table := NewProcessTable[string, aurora.ProcessContext]()
-	ctx := context.Background()
-
-	if _, err := table.LoadProcess(ctx, "missing"); !errors.Is(err, ErrProcessNotFound) {
-		t.Fatalf("load missing = %v, want ErrProcessNotFound", err)
-	}
-	// A nil *Process round-trips like any other pointer; the table is a pure
-	// lookup boundary and never dereferences what it stores.
-	if err := table.SaveProcess(ctx, "proc_1@1", nil); err != nil {
-		t.Fatalf("save: %v", err)
-	}
-	if process, err := table.LoadProcess(ctx, "proc_1@1"); err != nil || process != nil {
-		t.Fatalf("load = %v, %v", process, err)
-	}
-}
-
 func TestEventLogAppendReadStreams(t *testing.T) {
 	log := NewEventLog()
 	ctx := context.Background()

@@ -5,6 +5,7 @@ import (
 	"strings"
 
 	"github.com/aurora-capcompute/aurora-capcompute/aurora"
+	"github.com/aurora-capcompute/aurora-capcompute/monitor"
 	"github.com/aurora-capcompute/aurora-dispatchers/filesystem"
 	"github.com/aurora-capcompute/aurora-dispatchers/internet"
 	"github.com/aurora-capcompute/aurora-dispatchers/k8s"
@@ -16,7 +17,7 @@ import (
 
 // The capability ceiling: a static, operator-configured list of capability
 // names this deployment may ever grant. CreateProcess refuses manifests
-// granting beyond it — sys.Attenuate at the door. It is defense in depth, not
+// granting beyond it — monitor.Attenuate at the door. It is defense in depth, not
 // the reference monitor: the kernel's Validator still mediates every syscall
 // against the per-process grant set; the ceiling merely guarantees the dist
 // cannot exceed what its operator configured even if the (future) policy
@@ -52,7 +53,7 @@ func (c *ceiling) check(manifest aurora.Manifest) error {
 	if err != nil {
 		return fmt.Errorf("%w: %v", aurora.ErrInvalid, err)
 	}
-	if _, err := sys.Attenuate(c.allowed, requested); err != nil {
+	if _, err := monitor.Attenuate(c.allowed, requested); err != nil {
 		return fmt.Errorf("%w: capability ceiling: %v", aurora.ErrInvalid, err)
 	}
 	return nil
