@@ -9,9 +9,9 @@ import (
 	"sync/atomic"
 	"testing"
 
+	"github.com/aurora-capcompute/aurora-capcompute/monitor"
 	"github.com/aurora-capcompute/aurora-dispatchers/builtin"
 	"github.com/aurora-capcompute/aurora-dispatchers/registry"
-	"github.com/aurora-capcompute/capcompute"
 	"github.com/aurora-capcompute/capcompute/sys"
 )
 
@@ -59,8 +59,8 @@ func TestFlowBlocksOnyxToInternetExfil(t *testing.T) {
 	// The canonical flow chain over the drivers: FlowMonitor → Labeler → drivers.
 	// The monitor accumulates every observed label into the run's taint and
 	// refuses a syscall whose forbidden set intersects it.
-	taints := capcompute.NewTaints[string]()
-	chain := capcompute.NewFlowMonitor[string, flowCred](taints, capcompute.NewLabeler[flowCred](builtin.New[flowCred](config)))
+	taints := monitor.NewTaints[string]()
+	chain := monitor.NewFlowMonitor[string, flowCred](taints, monitor.NewLabeler[flowCred](builtin.New[flowCred](config)))
 
 	dispatch := func(cred flowCred, name string, args map[string]any) sys.SyscallResult {
 		raw, _ := json.Marshal(args)
