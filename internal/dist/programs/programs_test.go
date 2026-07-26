@@ -4,6 +4,7 @@ import (
 	"context"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 )
 
@@ -30,22 +31,18 @@ func TestDirListsWasmArtifacts(t *testing.T) {
 	writeFile(t, dir, "notes.txt", []byte("ignored"))
 
 	d := Dir{Path: dir}
-	sources, err := d.List(context.Background())
+	programs, err := d.List(context.Background())
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(sources) != 2 || sources[0].ID != "agent@1" || sources[1].ID != "beta" {
-		t.Fatalf("sources = %+v", sources)
+	if len(programs) != 2 || programs[0].ID != "agent@1" || programs[1].ID != "beta" {
+		t.Fatalf("programs = %+v", programs)
 	}
-	if len(sources[0].Interface) == 0 || len(sources[1].Interface) == 0 {
-		t.Fatalf("interface sidecars not loaded: %+v", sources)
+	if len(programs[0].SourceCode) == 0 || len(programs[1].SourceCode) == 0 {
+		t.Fatalf("wasm bytes not loaded: %+v", programs)
 	}
-	// No explicit default: the lexicographically first program.
-	if id := d.DefaultID(); id != "agent@1" {
-		t.Fatalf("default = %q", id)
-	}
-	if id := (Dir{Path: dir, Default: "beta"}).DefaultID(); id != "beta" {
-		t.Fatalf("explicit default = %q", id)
+	if programs[0].Description != "a program" || len(programs[0].Input) == 0 || len(programs[1].Output) == 0 {
+		t.Fatalf("interface sidecars not decoded: %+v", programs)
 	}
 }
 
@@ -59,13 +56,25 @@ func TestDirRequiresInterfaceSidecar(t *testing.T) {
 	}
 }
 
+// A sidecar that is not valid JSON is refused here, at the loader that decodes
+// it — the runtime is handed a decoded interface and never sees the file.
+func TestDirRejectsMalformedInterfaceSidecar(t *testing.T) {
+	dir := t.TempDir()
+	writeFile(t, dir, "broken.wasm", []byte{0x00, 0x61, 0x73, 0x6d})
+	writeFile(t, dir, "broken.json", []byte("not json"))
+	_, err := (Dir{Path: dir}).List(context.Background())
+	if err == nil {
+		t.Fatal("expected an error for a malformed <id>.json interface")
+	}
+	if !strings.Contains(err.Error(), "broken.json") {
+		t.Fatalf("error = %q, want the offending sidecar named", err)
+	}
+}
+
 func TestDirToleratesMissingDirectory(t *testing.T) {
 	d := Dir{Path: filepath.Join(t.TempDir(), "absent")}
-	sources, err := d.List(context.Background())
-	if err != nil || sources != nil {
-		t.Fatalf("list = %v, %v", sources, err)
-	}
-	if id := d.DefaultID(); id != "" {
-		t.Fatalf("default = %q", id)
+	programs, err := d.List(context.Background())
+	if err != nil || programs != nil {
+		t.Fatalf("list = %v, %v", programs, err)
 	}
 }

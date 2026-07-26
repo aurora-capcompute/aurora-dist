@@ -107,8 +107,31 @@ func (h *handler) listSessions(w http.ResponseWriter, _ *http.Request) {
 	writeJSON(w, h.dist.Runtime.ListSessions(), nil)
 }
 
+// programResponse is the wire shape of one registered program. It exists so the
+// runtime's program type needs no serialization of its own, and so a client is
+// structurally unable to receive the wasm bytes: they read a program's contract,
+// never its code.
+type programResponse struct {
+	ID          string          `json:"id"`
+	Digest      string          `json:"digest"`
+	Description string          `json:"description"`
+	Input       json.RawMessage `json:"input"`
+	Output      json.RawMessage `json:"output"`
+}
+
 func (h *handler) listPrograms(w http.ResponseWriter, _ *http.Request) {
-	writeJSON(w, h.dist.Runtime.Programs(), nil)
+	registered := h.dist.Runtime.Programs()
+	out := make([]programResponse, 0, len(registered))
+	for _, program := range registered {
+		out = append(out, programResponse{
+			ID:          program.ID,
+			Digest:      program.Digest,
+			Description: program.Description,
+			Input:       program.Input.Document,
+			Output:      program.Output.Document,
+		})
+	}
+	writeJSON(w, out, nil)
 }
 
 // --- memory ---

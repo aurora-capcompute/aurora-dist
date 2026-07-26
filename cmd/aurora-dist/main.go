@@ -43,8 +43,7 @@ type fileConfig struct {
 	TenantID string `json:"tenant_id,omitempty"`
 	DataDir  string `json:"data_dir,omitempty"`
 	Programs struct {
-		Dir     string `json:"dir,omitempty"`
-		Default string `json:"default,omitempty"`
+		Dir string `json:"dir,omitempty"`
 	} `json:"programs"`
 	CapabilityCeiling     []string `json:"capability_ceiling,omitempty"`
 	InstanceID            string   `json:"instance_id,omitempty"`
@@ -67,7 +66,6 @@ func run() error {
 		addr        = flag.String("addr", "", "listen address (default :8080)")
 		dataDir     = flag.String("data", "", "data directory for the SQLite store (empty = in-memory)")
 		programsDir = flag.String("programs", "", "directory of *.wasm program artifacts")
-		defaultProg = flag.String("default-program", "", "default program id")
 		tenantID    = flag.String("tenant", "", "tenant id (default \"local\")")
 		showVersion = flag.Bool("version", false, "print version and exit")
 	)
@@ -127,7 +125,6 @@ func run() error {
 		TenantID:               pick(*tenantID, cfg.TenantID, ""),
 		DataDir:                pick(*dataDir, cfg.DataDir, ""),
 		ProgramsDir:            pick(*programsDir, cfg.Programs.Dir, ""),
-		DefaultProgram:         pick(*defaultProg, cfg.Programs.Default, ""),
 		CapabilityCeiling:      cfg.CapabilityCeiling,
 		TaskSecret:             taskSecret,
 		Secrets:                dist.NewEnvSecretResolver(),

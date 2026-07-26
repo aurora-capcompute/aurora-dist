@@ -24,10 +24,8 @@ type SessionLog struct {
 // reconstructible), and its tasks.
 type ProcessLog struct {
 	aurora.ProcessSnapshot
-	ParentProcessID string                `json:"parent_process_id,omitempty"`
-	ChildProcessIDs []string              `json:"child_process_ids,omitempty"`
-	Entries         []aurora.JournalEntry `json:"entries"`
-	Tasks           []aurora.TaskSnapshot `json:"tasks,omitempty"`
+	Entries []aurora.JournalEntry `json:"entries"`
+	Tasks   []aurora.TaskSnapshot `json:"tasks,omitempty"`
 }
 
 // SessionLog folds one session's whole state into a single projection. It
@@ -62,18 +60,20 @@ func (d *Dist) SessionLog(sessionID string) (SessionLog, error) {
 	processes := make([]ProcessLog, 0, len(session.Processes))
 	for _, snapshot := range session.Processes {
 		info := byProcess[snapshot.ID]
-		entries := info.entries
-		if entries == nil {
-			entries = []aurora.JournalEntry{}
-		}
 		tasks, err := d.Runtime.Tasks(snapshot.ID)
 		if err != nil {
 			return SessionLog{}, err
 		}
+		// The graph carries the delegation links and the journal across every
+		// revision; the snapshot carries the process's current state.
+		snapshot.ParentProcessID = info.parent
+		snapshot.ChildProcessIDs = info.children
+		entries := info.entries
+		if entries == nil {
+			entries = []aurora.JournalEntry{}
+		}
 		processes = append(processes, ProcessLog{
 			ProcessSnapshot: snapshot,
-			ParentProcessID: info.parent,
-			ChildProcessIDs: info.children,
 			Entries:         entries,
 			Tasks:           tasks,
 		})

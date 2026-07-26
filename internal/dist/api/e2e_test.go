@@ -118,6 +118,7 @@ func testManifest(llmBaseURL string) aurora.Manifest {
 	})
 	return aurora.Manifest{
 		Version: aurora.ManifestVersion,
+		Program: "agent",
 		Syscalls: []aurora.Syscall{
 			{Syscall: "sys.timer"},
 			{Syscall: "core.openaiApi", Config: config, Hidden: true},
@@ -192,15 +193,22 @@ func TestDistributionEndToEnd(t *testing.T) {
 	c := &client{t: t, base: server.URL, http: server.Client()}
 
 	// The loaded program set is readable — the terminal's `ls /programs` — and
-	// each artifact carries the interface it declares (description + input/output
-	// schemas), read from the sidecar manifest beside the wasm at load.
-	var artifacts []aurora.ProgramArtifact
-	c.do(http.MethodGet, "/v1/programs", nil, &artifacts)
-	if len(artifacts) != 1 || artifacts[0].ID != "agent" || artifacts[0].Digest == "" {
-		t.Fatalf("programs = %+v, want the loaded agent artifact with its digest", artifacts)
+	// each entry carries the interface the program declares (description +
+	// input/output schemas), read from the sidecar manifest beside the wasm at
+	// load. The response shape is the API's own: no wasm bytes reach a client.
+	var programs []struct {
+		ID          string          `json:"id"`
+		Digest      string          `json:"digest"`
+		Description string          `json:"description"`
+		Input       json.RawMessage `json:"input"`
+		Output      json.RawMessage `json:"output"`
 	}
-	if artifacts[0].Description == "" || len(artifacts[0].Input) == 0 || len(artifacts[0].Output) == 0 {
-		t.Fatalf("program interface not surfaced: %+v", artifacts[0])
+	c.do(http.MethodGet, "/v1/programs", nil, &programs)
+	if len(programs) != 1 || programs[0].ID != "agent" || programs[0].Digest == "" {
+		t.Fatalf("programs = %+v, want the loaded agent program with its digest", programs)
+	}
+	if programs[0].Description == "" || len(programs[0].Input) == 0 || len(programs[0].Output) == 0 {
+		t.Fatalf("program interface not surfaced: %+v", programs[0])
 	}
 
 	// Create a session, start a process.
@@ -257,6 +265,22 @@ func TestDistributionEndToEnd(t *testing.T) {
 		if !strings.Contains(story, want) {
 			t.Fatalf("journal %v is missing %s", names, want)
 		}
+	}
+
+	// A journaled result crosses the wire as the JSON document it is — the
+	// terminal renders it — not as an encoded blob.
+	var resulted int
+	for _, entry := range logged.Entries {
+		if entry.Outcome.Status != "result" || len(entry.Outcome.Result) == 0 {
+			continue
+		}
+		resulted++
+		if !json.Valid(entry.Outcome.Result) {
+			t.Fatalf("%s result is not JSON on the wire: %s", entry.Syscall.Name, entry.Outcome.Result)
+		}
+	}
+	if resulted == 0 {
+		t.Fatal("no journal entry carried a result; the round-trip is untested")
 	}
 
 	// The timer task resolved as completed by the timer actor.
@@ -488,7 +512,7 @@ func TestCapabilityCeilingOverHTTP(t *testing.T) {
 
 	body, _ := json.Marshal(map[string]any{
 		"input": "hi",
-		"manifest": aurora.Manifest{Version: aurora.ManifestVersion, Syscalls: []aurora.Syscall{
+		"manifest": aurora.Manifest{Version: aurora.ManifestVersion, Program: "agent", Syscalls: []aurora.Syscall{
 			{Syscall: "core.internet", Config: json.RawMessage(`{"capabilities":[{"methods":["GET"],"domain":"example.com"}]}`)},
 		}},
 	})
@@ -563,6 +587,7 @@ func TestAgentLoopIsCapped(t *testing.T) {
 	})
 	manifest := aurora.Manifest{
 		Version: aurora.ManifestVersion,
+		Program: "agent",
 		Syscalls: []aurora.Syscall{
 			{Syscall: "core.openaiApi", Config: llmConfig, Hidden: true},
 			{Syscall: "core.memory", Config: memConfig},
@@ -651,6 +676,7 @@ func TestAgentSalvagesProseReply(t *testing.T) {
 	})
 	manifest := aurora.Manifest{
 		Version: aurora.ManifestVersion,
+		Program: "agent",
 		Syscalls: []aurora.Syscall{
 			{Syscall: "core.openaiApi", Config: llmConfig, Hidden: true},
 		},
@@ -778,6 +804,7 @@ func TestAgentOffloadsLargeInternetRead(t *testing.T) {
 	})
 	manifest := aurora.Manifest{
 		Version: aurora.ManifestVersion,
+		Program: "agent",
 		Syscalls: []aurora.Syscall{
 			{Syscall: "core.openaiApi", Config: llmConfig, Hidden: true},
 			{Syscall: "core.internet", Config: internetConfig},
@@ -872,6 +899,7 @@ func TestAgentSheddingRecoversOversizedRequest(t *testing.T) {
 	})
 	manifest := aurora.Manifest{
 		Version: aurora.ManifestVersion,
+		Program: "agent",
 		Syscalls: []aurora.Syscall{
 			{Syscall: "core.openaiApi", Config: llmConfig, Hidden: true},
 		},

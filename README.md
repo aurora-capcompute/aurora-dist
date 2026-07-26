@@ -130,7 +130,6 @@ export AURORA_TASK_SECRET=change-me-at-least-16-bytes
 | `-addr` | `127.0.0.1:8080` | Listen address (loopback by default — see the security note) |
 | `-data` | *(empty)* | Data directory for SQLite; empty = in‑memory |
 | `-programs` | *(empty)* | Directory of `<name>.wasm` + `<name>.json` program pairs |
-| `-default-program` | | Default program id |
 | `-tenant` | `local` | Tenant id |
 | `-config` | | Path to a JSON config file |
 | `-version` | | Print version and exit |

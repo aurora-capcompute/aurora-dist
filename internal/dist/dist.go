@@ -39,10 +39,9 @@ type Config struct {
 	// DataDir holds the SQLite database (<DataDir>/aurora.db). Empty runs on
 	// in-memory stores — nothing survives a restart.
 	DataDir string
-	// ProgramsDir is scanned for *.wasm program artifacts; DefaultProgram
-	// optionally names the default program id.
-	ProgramsDir    string
-	DefaultProgram string
+	// ProgramsDir is scanned for *.wasm program artifacts. There is no default
+	// program: every create-process request names the program it runs.
+	ProgramsDir string
 	// CapabilityCeiling lists every capability name this deployment may
 	// grant; empty means unrestricted. CreateProcess refuses manifests
 	// granting beyond it.
@@ -136,7 +135,7 @@ func New(ctx context.Context, cfg Config) (*Dist, error) {
 		AuditKey:    cfg.AuditKey,
 	})
 
-	dir := programs.Dir{Path: cfg.ProgramsDir, Default: cfg.DefaultProgram}
+	dir := programs.Dir{Path: cfg.ProgramsDir}
 	// A restart must reclaim the leases of the processes it was running: the
 	// process lease is keyed by holder id, so the restarted instance needs the
 	// *same* id to renew immediately rather than wait out the dead instance's
@@ -152,7 +151,6 @@ func New(ctx context.Context, cfg Config) (*Dist, error) {
 		}
 	}
 	runtime, err := aurora.NewRuntime(ctx, aurora.Config{
-		Programs:               dir,
 		Dispatchers:            provider,
 		Log:                    log,
 		Leases:                 leases,
@@ -163,6 +161,17 @@ func New(ctx context.Context, cfg Config) (*Dist, error) {
 		MaxResidentProcesses:   cfg.MaxResidentProcesses,
 	})
 	if err != nil {
+		for _, closer := range closers {
+			_ = closer.Close()
+		}
+		return nil, err
+	}
+
+	// The runtime boots with no programs: it reads no filesystem. Load the
+	// directory into it before serving, so a distribution that cannot register
+	// its programs fails to start rather than accepting work it cannot run.
+	if _, err := dir.Reload(ctx, runtime); err != nil {
+		_ = runtime.Close(ctx)
 		for _, closer := range closers {
 			_ = closer.Close()
 		}
@@ -278,8 +287,8 @@ func (d *Dist) CreateProcess(sessionID, input string, manifest aurora.Manifest) 
 }
 
 // startProgramReload re-scans the programs directory into the runtime every
-// interval so the in-memory program set converges to the filesystem. The scan
-// is digest-diffed by SetPrograms — unchanged programs keep running — so an
+// interval so the in-memory program set converges to the filesystem. Reload adds
+// and removes program by program — unchanged programs keep running — so an
 // unchanged directory is a cheap no-op. With no directory configured there is
 // nothing to track and the loop is not started.
 func (d *Dist) startProgramReload(ctx context.Context, interval time.Duration) {
