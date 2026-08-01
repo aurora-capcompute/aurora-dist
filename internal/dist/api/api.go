@@ -18,6 +18,7 @@ import (
 	"net"
 	"net/http"
 	"strings"
+	"time"
 
 	"github.com/aurora-capcompute/aurora-capcompute/aurora"
 
@@ -211,6 +212,11 @@ type createProcessRequest struct {
 	// manifest entity in the core. Omitted means an empty composition (no
 	// tools) at the current manifest version.
 	Manifest *aurora.Manifest `json:"manifest,omitempty"`
+	// DeadlineMS bounds each of the process's quanta — the guest's own
+	// uninterrupted compute between syscalls, and anything it delegates within
+	// that quantum. Omitted takes the host default; the runtime clamps anything
+	// above the host ceiling, so this can only ever ask for less.
+	DeadlineMS int64 `json:"deadline_ms,omitempty"`
 }
 
 func (h *handler) createProcess(w http.ResponseWriter, r *http.Request) {
@@ -222,7 +228,7 @@ func (h *handler) createProcess(w http.ResponseWriter, r *http.Request) {
 	if req.Manifest != nil {
 		manifest = *req.Manifest
 	}
-	snapshot, err := h.dist.CreateProcess(r.PathValue("id"), req.Input, manifest)
+	snapshot, err := h.dist.CreateProcess(r.PathValue("id"), req.Input, manifest, time.Duration(req.DeadlineMS)*time.Millisecond)
 	writeJSON(w, snapshot, err)
 }
 

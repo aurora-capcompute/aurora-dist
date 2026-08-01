@@ -60,7 +60,6 @@ type Config struct {
 	InstanceID string
 
 	MaxConcurrentProcesses int
-	MaxResidentProcesses   int
 
 	// TimerReconcileInterval is how often the timer service reconciles its
 	// armed timers against runtime state (0 = 1s).
@@ -158,7 +157,6 @@ func New(ctx context.Context, cfg Config) (*Dist, error) {
 		TaskSecret:             cfg.TaskSecret,
 		InstanceID:             instanceID,
 		MaxConcurrentProcesses: cfg.MaxConcurrentProcesses,
-		MaxResidentProcesses:   cfg.MaxResidentProcesses,
 	})
 	if err != nil {
 		for _, closer := range closers {
@@ -279,11 +277,13 @@ func (d *Dist) RenameSession(sessionID, name string) (aurora.SessionSnapshot, er
 // CreateProcess starts a process on a session after the distribution's own
 // gate: the capability ceiling. Manifest validation proper happens inside the
 // runtime (ValidateManifest against the compiled driver set).
-func (d *Dist) CreateProcess(sessionID, input string, manifest aurora.Manifest) (aurora.ProcessSnapshot, error) {
+// deadline bounds each of the process's quanta; zero takes the runtime's host
+// default, and the runtime clamps anything above its ceiling.
+func (d *Dist) CreateProcess(sessionID, input string, manifest aurora.Manifest, deadline time.Duration) (aurora.ProcessSnapshot, error) {
 	if err := d.ceiling.check(manifest); err != nil {
 		return aurora.ProcessSnapshot{}, err
 	}
-	return d.Runtime.CreateProcess(sessionID, input, manifest)
+	return d.Runtime.CreateProcess(sessionID, input, manifest, deadline)
 }
 
 // startProgramReload re-scans the programs directory into the runtime every
