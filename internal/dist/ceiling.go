@@ -6,6 +6,7 @@ import (
 
 	"github.com/aurora-capcompute/aurora-capcompute/aurora"
 	"github.com/aurora-capcompute/aurora-capcompute/monitor"
+	"github.com/aurora-capcompute/aurora-dispatchers/command"
 	"github.com/aurora-capcompute/aurora-dispatchers/filesystem"
 	"github.com/aurora-capcompute/aurora-dispatchers/internet"
 	"github.com/aurora-capcompute/aurora-dispatchers/k8s"
@@ -99,6 +100,8 @@ func grantedNames(syscalls []aurora.Syscall) ([]sys.Capability, error) {
 			add(filesystem.Capability)
 		case k8s.Capability:
 			add(k8s.Capability)
+		case command.Capability:
+			add(command.Capability)
 		case registry.HTTPTemplateSyscall:
 			add(registry.HTTPTemplateSyscall)
 		case openaillm.SyscallType:

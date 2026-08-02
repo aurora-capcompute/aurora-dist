@@ -126,6 +126,7 @@ func New(ctx context.Context, cfg Config) (*Dist, error) {
 		registry.FilesystemRegistration{},
 		registry.HTTPTemplateRegistration{},
 		registry.KubernetesRegistration{},
+		registry.CommandRegistration{},
 		openaillm.Registration{},
 	}, registry.Services{
 		Tenant:      tenant,
