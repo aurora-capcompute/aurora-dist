@@ -125,11 +125,11 @@ func (h *handler) listPrograms(w http.ResponseWriter, _ *http.Request) {
 	out := make([]programResponse, 0, len(registered))
 	for _, program := range registered {
 		out = append(out, programResponse{
-			ID:          program.ID,
-			Digest:      program.Digest,
+			ID:          program.ID.String(),
+			Digest:      program.Digest.ArtifactDigest,
 			Description: program.Description,
-			Input:       program.Input.Document,
-			Output:      program.Output.Document,
+			Input:       program.Input,
+			Output:      program.Output,
 		})
 	}
 	writeJSON(w, out, nil)

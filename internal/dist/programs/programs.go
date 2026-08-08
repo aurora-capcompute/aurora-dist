@@ -10,7 +10,6 @@ package programs
 import (
 	"context"
 	"encoding/json"
-	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -71,7 +70,7 @@ func (d Dir) List(_ context.Context) ([]aurora.ProgramData, error) {
 			return nil, fmt.Errorf("decode program %s interface (%s.json): %w", id, id, err)
 		}
 		programs = append(programs, aurora.ProgramData{
-			ID:          id,
+			ID:          aurora.ProgramID(id),
 			SourceCode:  wasm,
 			Description: declared.Description,
 			Input:       declared.Input,
@@ -83,34 +82,19 @@ func (d Dir) List(_ context.Context) ([]aurora.ProgramData, error) {
 }
 
 // Reload re-scans the directory and reconciles the runtime's registered programs
-// to it, one program at a time: a program on disk is added (re-adding an
-// unchanged one is a no-op the runtime settles without recompiling), a program
-// whose content changed is removed and re-added — which stops and ejects the
-// processes bound to the old identity — and a program that has left the directory
-// is removed. Content-unchanged programs are left running.
-//
-// The runtime owns program identity, so "changed" is whatever AddProgram reports
-// as a conflict: this loader never computes a digest of its own.
+// to it, one program at a time: every program on disk is registered — the runtime
+// withdraws whatever held the id first, stopping and ejecting the processes bound
+// to it — and a program that has left the directory is removed. A reload is
+// therefore forced: it re-registers even an unchanged program, so nothing running
+// survives a reload.
 func (d Dir) Reload(ctx context.Context, runtime aurora.Runtime) ([]aurora.ProgramArtifact, error) {
 	listed, err := d.List(ctx)
 	if err != nil {
 		return nil, err
 	}
-	onDisk := make(map[string]struct{}, len(listed))
+	onDisk := make(map[aurora.ProgramID]struct{}, len(listed))
 	for _, program := range listed {
 		onDisk[program.ID] = struct{}{}
-		err := runtime.AddProgram(ctx, program)
-		if !errors.Is(err, aurora.ErrConflict) {
-			if err != nil {
-				return nil, err
-			}
-			continue
-		}
-		// Registered under this id with a different identity: withdraw the old
-		// program (settling its processes) and register the new one.
-		if err := runtime.RemoveProgram(ctx, program.ID); err != nil {
-			return nil, err
-		}
 		if err := runtime.AddProgram(ctx, program); err != nil {
 			return nil, err
 		}
@@ -119,7 +103,7 @@ func (d Dir) Reload(ctx context.Context, runtime aurora.Runtime) ([]aurora.Progr
 		if _, keep := onDisk[registered.ID]; keep {
 			continue
 		}
-		if err := runtime.RemoveProgram(ctx, registered.ID); err != nil {
+		if err := runtime.RemoveProgram(ctx, registered.ID.String()); err != nil {
 			return nil, err
 		}
 	}
