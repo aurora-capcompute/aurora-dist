@@ -42,20 +42,6 @@ func TestCeilingAttenuatesGrants(t *testing.T) {
 	}
 }
 
-func TestCeilingSeesThroughSpawnTrees(t *testing.T) {
-	c := newCeiling([]string{"core.internet"})
-	nested := manifestWith(aurora.Syscall{
-		Syscall: aurora.SpawnSyscall,
-		Programs: []aurora.Manifest{{
-			Program:  "p",
-			Syscalls: []aurora.Syscall{{Syscall: "core.timer"}},
-		}},
-	})
-	if err := c.check(nested); err == nil {
-		t.Fatal("a spawnable program's grant beyond the ceiling must be refused at the door")
-	}
-}
-
 // A leaf grant publishes one capability, named for its syscall: the ceiling
 // gates the family, and operations are selected within the manifest.
 func TestCeilingGatesOpenAIFamily(t *testing.T) {

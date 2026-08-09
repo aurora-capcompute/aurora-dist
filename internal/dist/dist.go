@@ -206,36 +206,19 @@ func New(ctx context.Context, cfg Config) (*Dist, error) {
 // interrupted — an interruption is external (shutdown, a scheduling or lease
 // conflict), never a program failure (which finishes as ProcessFailed) — so
 // re-driving is safe and idempotent: replay serves the committed journal
-// prefix and re-executes only from the last open savepoint. A delegated child
-// whose parent is also interrupted is left to its parent, whose resumed quantum
-// re-drives it via replay; kicking it directly would double-drive the tree. So
-// only the topmost interrupted node of each tree is retried.
+// prefix and re-executes only from the last open savepoint.
 func (d *Dist) resumeInterrupted() {
 	for _, summary := range d.Runtime.ListSessions() {
 		session, err := d.Runtime.GetSession(summary.ID)
 		if err != nil {
 			continue
 		}
-		graph, err := d.Runtime.SessionGraph(summary.ID)
-		if err != nil {
-			continue
-		}
-		parent := make(map[string]string, len(graph.Processes))
-		for _, gp := range graph.Processes {
-			parent[gp.ProcessID] = gp.ParentProcessID
-		}
-		interrupted := make(map[string]bool)
 		for _, process := range session.Processes {
-			if process.Status == aurora.ProcessInterrupted {
-				interrupted[process.ID] = true
+			if process.Status != aurora.ProcessInterrupted {
+				continue
 			}
-		}
-		for id := range interrupted {
-			if interrupted[parent[id]] {
-				continue // re-driven inside its interrupted parent's quantum
-			}
-			if _, err := d.Runtime.Retry(id, aurora.RetryResume); err != nil {
-				d.logger.Warn("resume interrupted process at boot", "process_id", id, "error", err)
+			if _, err := d.Runtime.Retry(process.ID, aurora.RetryResume); err != nil {
+				d.logger.Warn("resume interrupted process at boot", "process_id", process.ID, "error", err)
 			}
 		}
 	}

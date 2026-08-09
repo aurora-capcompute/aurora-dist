@@ -6,7 +6,7 @@ import "github.com/aurora-capcompute/aurora-capcompute/aurora"
 // event log holds for a session, folded once into typed domain objects. The
 // session is the log stream (tenant → session → process → revision), so a
 // single fetch carries the session metadata, its conversation history, and
-// every process with its full state, delegation links, complete journal
+// every process with its full state, complete journal
 // across all revisions, and tasks. Every other view a terminal wants — the
 // current journal, a specific revision, the call graph, a task list — is a
 // grouping of this payload, computed on the client. The server owns the fold
@@ -18,7 +18,7 @@ type SessionLog struct {
 }
 
 // ProcessLog is one process's complete durable state: its snapshot fields,
-// its delegation links, the flat journal of every entry ever written (each
+// the flat journal of every entry ever written (each
 // carrying its position and the revision that produced it, so the fork
 // structure — and thus any single revision's effective journal — is
 // reconstructible), and its tasks.
@@ -31,7 +31,7 @@ type ProcessLog struct {
 // SessionLog folds one session's whole state into a single projection. It
 // composes the runtime's read primitives — the session snapshot (metadata,
 // history, per-process fields), the session graph (entries across revisions,
-// delegation links), and each process's tasks — into the shape a terminal
+// and each process's tasks — into the shape a terminal
 // renders from. The runtime keeps those primitives; the distribution is where
 // they merge into the one read the API exposes.
 func (d *Dist) SessionLog(sessionID string) (SessionLog, error) {
@@ -43,32 +43,20 @@ func (d *Dist) SessionLog(sessionID string) (SessionLog, error) {
 	if err != nil {
 		return SessionLog{}, err
 	}
-	type graphInfo struct {
-		parent   string
-		children []string
-		entries  []aurora.JournalEntry
-	}
-	byProcess := make(map[string]graphInfo, len(graph.Processes))
+	byProcess := make(map[string][]aurora.JournalEntry, len(graph.Processes))
 	for _, gp := range graph.Processes {
-		byProcess[gp.ProcessID] = graphInfo{
-			parent:   gp.ParentProcessID,
-			children: gp.ChildProcessIDs,
-			entries:  gp.Entries,
-		}
+		byProcess[gp.ProcessID] = gp.Entries
 	}
 
 	processes := make([]ProcessLog, 0, len(session.Processes))
 	for _, snapshot := range session.Processes {
-		info := byProcess[snapshot.ID]
 		tasks, err := d.Runtime.Tasks(snapshot.ID)
 		if err != nil {
 			return SessionLog{}, err
 		}
-		// The graph carries the delegation links and the journal across every
-		// revision; the snapshot carries the process's current state.
-		snapshot.ParentProcessID = info.parent
-		snapshot.ChildProcessIDs = info.children
-		entries := info.entries
+		// The graph carries the journal across every revision; the snapshot
+		// carries the process's current state.
+		entries := byProcess[snapshot.ID]
 		if entries == nil {
 			entries = []aurora.JournalEntry{}
 		}

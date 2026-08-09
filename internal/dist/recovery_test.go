@@ -47,27 +47,13 @@ func TestResumeInterruptedRetriesTopmostOnly(t *testing.T) {
 			// parked sibling that must not be touched.
 			"ses_1": {SessionSummary: aurora.SessionSummary{ID: "ses_1"}, Processes: []aurora.ProcessSnapshot{
 				{ID: "root", Status: aurora.ProcessInterrupted},
-				{ID: "child", Status: aurora.ProcessInterrupted},
 				{ID: "parked", Status: aurora.ProcessWaitingTask},
 			}},
-			// An interrupted child whose parent merely yielded (waiting on it)
-			// needs the kick; a completed process never does.
+			// A completed or parked process never needs the kick.
 			"ses_2": {SessionSummary: aurora.SessionSummary{ID: "ses_2"}, Processes: []aurora.ProcessSnapshot{
-				{ID: "yielded_parent", Status: aurora.ProcessYielded},
+				{ID: "yielded", Status: aurora.ProcessYielded},
 				{ID: "orphan", Status: aurora.ProcessInterrupted},
 				{ID: "done", Status: aurora.ProcessCompleted},
-			}},
-		},
-		graphs: map[string]aurora.SessionGraph{
-			"ses_1": {Processes: []aurora.SessionGraphProcess{
-				{ProcessID: "root"},
-				{ProcessID: "child", ParentProcessID: "root"},
-				{ProcessID: "parked"},
-			}},
-			"ses_2": {Processes: []aurora.SessionGraphProcess{
-				{ProcessID: "yielded_parent"},
-				{ProcessID: "orphan", ParentProcessID: "yielded_parent"},
-				{ProcessID: "done"},
 			}},
 		},
 	}
@@ -77,7 +63,7 @@ func TestResumeInterruptedRetriesTopmostOnly(t *testing.T) {
 	sort.Strings(rt.retried)
 	want := []string{"orphan", "root"}
 	if len(rt.retried) != len(want) || rt.retried[0] != want[0] || rt.retried[1] != want[1] {
-		t.Fatalf("retried = %v, want %v (root re-drives its interrupted child; parked/yielded/completed untouched)", rt.retried, want)
+		t.Fatalf("retried = %v, want %v (parked/yielded/completed untouched)", rt.retried, want)
 	}
 }
 

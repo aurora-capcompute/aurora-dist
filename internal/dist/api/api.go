@@ -31,7 +31,7 @@ func Handler(d *dist.Dist) http.Handler {
 	mux := http.NewServeMux()
 
 	// Sessions. GET returns the complete session log — session metadata,
-	// history, and every process with its full state, delegation links,
+	// history, and every process with its full state,
 	// journal across all revisions, and tasks. Every narrower view (the
 	// current journal, one revision, the call graph, a task list) is a
 	// client-side grouping of that one payload.
@@ -213,8 +213,8 @@ type createProcessRequest struct {
 	// tools) at the current manifest version.
 	Manifest *aurora.Manifest `json:"manifest,omitempty"`
 	// DeadlineMS bounds each of the process's quanta — the guest's own
-	// uninterrupted compute between syscalls, and anything it delegates within
-	// that quantum. Omitted takes the host default; the runtime clamps anything
+	// uninterrupted compute between syscalls. Omitted takes the host default;
+	// the runtime clamps anything
 	// above the host ceiling, so this can only ever ask for less.
 	DeadlineMS int64 `json:"deadline_ms,omitempty"`
 }

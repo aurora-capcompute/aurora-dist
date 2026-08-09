@@ -2,10 +2,10 @@ package dist
 
 import (
 	"fmt"
+	"sort"
 	"strings"
 
 	"github.com/aurora-capcompute/aurora-capcompute/aurora"
-	"github.com/aurora-capcompute/aurora-capcompute/monitor"
 	"github.com/aurora-capcompute/aurora-dispatchers/command"
 	"github.com/aurora-capcompute/aurora-dispatchers/filesystem"
 	"github.com/aurora-capcompute/aurora-dispatchers/internet"
@@ -53,14 +53,26 @@ func (c *ceiling) check(manifest aurora.Manifest) error {
 	if err != nil {
 		return fmt.Errorf("%w: %v", aurora.ErrInvalid, err)
 	}
-	if _, err := monitor.Attenuate(c.allowed, requested); err != nil {
-		return fmt.Errorf("%w: capability ceiling: %v", aurora.ErrInvalid, err)
+	allowed := make(map[string]struct{}, len(c.allowed))
+	for _, capability := range c.allowed {
+		allowed[capability.Name] = struct{}{}
+	}
+	var refused []string
+	for _, capability := range requested {
+		if _, ok := allowed[capability.Name]; !ok {
+			refused = append(refused, capability.Name)
+		}
+	}
+	if len(refused) > 0 {
+		sort.Strings(refused)
+		return fmt.Errorf("%w: capability ceiling: %s not permitted",
+			aurora.ErrInvalid, strings.Join(refused, ", "))
 	}
 	return nil
 }
 
-// grantedNames statically derives the capability names a grant set publishes,
-// recursing through sys.spawn subtrees. Each grant publishes exactly one
+// grantedNames statically derives the capability names a grant set publishes.
+// Each grant publishes exactly one
 // capability, named for its syscall — its operations are cases of that one
 // capability's ADT, not separate names — so the ceiling gates families, not
 // individual operations (a manifest's `capabilities` list selects operations
@@ -72,21 +84,11 @@ func (c *ceiling) check(manifest aurora.Manifest) error {
 //	core.scratch                → core.scratch
 //	core.filesystem             → core.filesystem
 //	core.openaiApi              → core.openaiApi
-//	sys.spawn                   → nothing external (each spawnable program is
-//	                              granted at the same door, recursively)
 func grantedNames(syscalls []aurora.Syscall) ([]sys.Capability, error) {
 	var out []sys.Capability
 	add := func(name string) { out = append(out, sys.Capability{Name: name}) }
 	for _, grant := range syscalls {
 		switch grant.Syscall {
-		case aurora.SpawnSyscall:
-			for _, program := range grant.Programs {
-				nested, err := grantedNames(program.Syscalls)
-				if err != nil {
-					return nil, err
-				}
-				out = append(out, nested...)
-			}
 		case aurora.TimerSyscall:
 			add(aurora.TimerSyscall)
 		case internet.Capability:
