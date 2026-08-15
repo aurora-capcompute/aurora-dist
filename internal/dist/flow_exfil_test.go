@@ -47,13 +47,23 @@ func TestFlowBlocksOnyxToInternetExfil(t *testing.T) {
 		`{"operation":"search_onyx","method":"POST","base_url":%q,"path":"/api/search",`+
 		`"body":{"query":"{{query}}"},"params":{"query":{"type":"string","required":true}},`+
 		`"labels":["onyx_data"]}]}`, onyx.URL)
-	if err := (registry.HTTPTemplateRegistration{}).Configure(context.Background(), json.RawMessage(searchCfg), registry.Services{}, config); err != nil {
+	template, err := (registry.HTTPTemplateRegistration{}).Configure(
+		context.Background(), json.RawMessage(searchCfg), registry.Services{})
+	if err != nil {
 		t.Fatalf("configure template: %v", err)
+	}
+	if err := config.Add(template); err != nil {
+		t.Fatalf("add template: %v", err)
 	}
 	netCfg := fmt.Sprintf(`{"allow_private_network":true,"capabilities":[`+
 		`{"methods":["POST"],"domain":%q,"taints":["onyx_data"]}]}`, exfil.URL)
-	if err := (registry.InternetRegistration{}).Configure(context.Background(), json.RawMessage(netCfg), registry.Services{}, config); err != nil {
+	egress, err := (registry.InternetRegistration{}).Configure(
+		context.Background(), json.RawMessage(netCfg), registry.Services{})
+	if err != nil {
 		t.Fatalf("configure internet: %v", err)
+	}
+	if err := config.Add(egress); err != nil {
+		t.Fatalf("add internet: %v", err)
 	}
 
 	// The canonical flow chain over the drivers: FlowMonitor → Labeler → drivers.
