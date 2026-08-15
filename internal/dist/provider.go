@@ -5,9 +5,8 @@ import (
 	"encoding/json"
 
 	"github.com/aurora-capcompute/aurora-capcompute/aurora"
-	"github.com/aurora-capcompute/aurora-dispatchers/builtin"
+	"github.com/aurora-capcompute/aurora-capcompute/capability"
 	"github.com/aurora-capcompute/aurora-dispatchers/registry"
-	"github.com/aurora-capcompute/capcompute/sys"
 )
 
 // provider adapts the dispatcher registry to the runtime's injected
@@ -35,7 +34,7 @@ func (p *provider) NewDispatcher(
 	ctx context.Context,
 	cred aurora.ProcessContext,
 	manifest aurora.Manifest,
-) (sys.Dispatcher[aurora.ProcessContext], error) {
+) (*capability.Table, error) {
 	leaf := manifest.LeafSyscalls()
 	entries := make([]registry.Entry, 0, len(leaf))
 	for _, grant := range leaf {
@@ -55,9 +54,5 @@ func (p *provider) NewDispatcher(
 	if cred.TenantID != "" {
 		services.Tenant = cred.TenantID
 	}
-	config, err := p.registry.Build(ctx, entries, services)
-	if err != nil {
-		return nil, err
-	}
-	return builtin.New[aurora.ProcessContext](config), nil
+	return p.registry.Build(ctx, entries, services)
 }

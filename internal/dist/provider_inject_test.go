@@ -11,6 +11,7 @@ import (
 	"testing"
 
 	"github.com/aurora-capcompute/aurora-capcompute/aurora"
+	"github.com/aurora-capcompute/aurora-capcompute/capability"
 	"github.com/aurora-capcompute/aurora-dispatchers/memory"
 	"github.com/aurora-capcompute/aurora-dispatchers/registry"
 	"github.com/aurora-capcompute/capcompute/sys"
@@ -56,10 +57,11 @@ func TestProviderInjectsCredentialEndToEnd(t *testing.T) {
 			{Syscall: "core.internet", Config: json.RawMessage(config)},
 		},
 	}
-	dispatcher, err := provider.NewDispatcher(context.Background(), aurora.ProcessContext{}, manifest)
+	table, err := provider.NewDispatcher(context.Background(), aurora.ProcessContext{}, manifest)
 	if err != nil {
 		t.Fatalf("new dispatcher: %v", err)
 	}
+	dispatcher := capability.NewDispatcher[aurora.ProcessContext](table)
 
 	// The guest asks only for method + url — it never names the credential.
 	args, _ := json.Marshal(map[string]string{"method": "GET", "url": server.URL + "/v1/data"})

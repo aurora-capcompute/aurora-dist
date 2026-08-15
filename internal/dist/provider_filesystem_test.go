@@ -8,6 +8,7 @@ import (
 	"testing"
 
 	"github.com/aurora-capcompute/aurora-capcompute/aurora"
+	"github.com/aurora-capcompute/aurora-capcompute/capability"
 	"github.com/aurora-capcompute/aurora-dispatchers/registry"
 	"github.com/aurora-capcompute/capcompute/sys"
 )
@@ -31,10 +32,11 @@ func TestProviderServesFilesystemRead(t *testing.T) {
 			{Syscall: "core.filesystem", Config: json.RawMessage(`{"capabilities":[{"operation":"read"}],"roots":["` + dir + `"]}`)},
 		},
 	}
-	dispatcher, err := provider.NewDispatcher(context.Background(), aurora.ProcessContext{}, manifest)
+	table, err := provider.NewDispatcher(context.Background(), aurora.ProcessContext{}, manifest)
 	if err != nil {
 		t.Fatalf("new dispatcher: %v", err)
 	}
+	dispatcher := capability.NewDispatcher[aurora.ProcessContext](table)
 
 	published := false
 	for _, capability := range dispatcher.Capabilities() {
@@ -85,10 +87,11 @@ func TestProviderFilesystemRootConfinement(t *testing.T) {
 			{Syscall: "core.filesystem", Config: json.RawMessage(`{"capabilities":[{"operation":"read"}],"roots":["` + dir + `"]}`)},
 		},
 	}
-	dispatcher, err := provider.NewDispatcher(context.Background(), aurora.ProcessContext{}, manifest)
+	table, err := provider.NewDispatcher(context.Background(), aurora.ProcessContext{}, manifest)
 	if err != nil {
 		t.Fatalf("new dispatcher: %v", err)
 	}
+	dispatcher := capability.NewDispatcher[aurora.ProcessContext](table)
 	result, err := dispatcher.Dispatch(context.Background(), aurora.ProcessContext{}, sys.Syscall{
 		Name: "core.filesystem",
 		Args: json.RawMessage(`{"operation":"read","path":"../../../../etc/hostname"}`),

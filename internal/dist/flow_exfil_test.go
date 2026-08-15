@@ -9,8 +9,8 @@ import (
 	"sync/atomic"
 	"testing"
 
+	"github.com/aurora-capcompute/aurora-capcompute/capability"
 	"github.com/aurora-capcompute/aurora-capcompute/monitor"
-	"github.com/aurora-capcompute/aurora-dispatchers/builtin"
 	"github.com/aurora-capcompute/aurora-dispatchers/registry"
 	"github.com/aurora-capcompute/capcompute/sys"
 )
@@ -42,7 +42,7 @@ func TestFlowBlocksOnyxToInternetExfil(t *testing.T) {
 	// Build the real drivers from a manifest: an Onyx search labeled "onyx_data",
 	// and an internet POST that forbids "onyx_data". Loopback http is used only so
 	// the test can observe (or not observe) the request reaching the wire.
-	config := builtin.NewTable()
+	config := capability.NewTable()
 	searchCfg := fmt.Sprintf(`{"allow_private_network":true,"capabilities":[`+
 		`{"operation":"search_onyx","method":"POST","base_url":%q,"path":"/api/search",`+
 		`"body":{"query":"{{query}}"},"params":{"query":{"type":"string","required":true}},`+
@@ -66,11 +66,12 @@ func TestFlowBlocksOnyxToInternetExfil(t *testing.T) {
 		t.Fatalf("add internet: %v", err)
 	}
 
-	// The canonical flow chain over the drivers: FlowMonitor → Labeler → drivers.
-	// The monitor accumulates every observed label into the run's taint and
-	// refuses a syscall whose forbidden set intersects it.
-	taints := monitor.NewTaints[string]()
-	chain := monitor.NewFlowMonitor[string, flowCred](taints, monitor.NewLabeler[flowCred](builtin.New[flowCred](config)))
+	// The canonical flow chain over the drivers: Guard → Stamp → drivers, both
+	// halves reading the same index the routing dispatcher does. The guard
+	// accumulates every observed label into the run's taint and refuses a syscall
+	// whose forbidden set intersects it.
+	flow := monitor.NewFlow[string, flowCred](monitor.NewTaints[string](), config)
+	chain := flow.Guard(flow.Stamp(capability.NewDispatcher[flowCred](config)))
 
 	dispatch := func(cred flowCred, name string, args map[string]any) sys.SyscallResult {
 		raw, _ := json.Marshal(args)

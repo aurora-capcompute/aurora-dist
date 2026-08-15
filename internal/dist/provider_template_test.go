@@ -10,6 +10,7 @@ import (
 	"testing"
 
 	"github.com/aurora-capcompute/aurora-capcompute/aurora"
+	"github.com/aurora-capcompute/aurora-capcompute/capability"
 	"github.com/aurora-capcompute/aurora-dispatchers/memory"
 	"github.com/aurora-capcompute/aurora-dispatchers/registry"
 	"github.com/aurora-capcompute/capcompute/sys"
@@ -51,10 +52,11 @@ func TestProviderTemplateEndToEnd(t *testing.T) {
 			{Syscall: "core.httpTemplate", Config: json.RawMessage(config)},
 		},
 	}
-	dispatcher, err := provider.NewDispatcher(context.Background(), aurora.ProcessContext{}, manifest)
+	table, err := provider.NewDispatcher(context.Background(), aurora.ProcessContext{}, manifest)
 	if err != nil {
 		t.Fatalf("new dispatcher: %v", err)
 	}
+	dispatcher := capability.NewDispatcher[aurora.ProcessContext](table)
 
 	// The guest supplies only the operation and its declared parameter.
 	args, _ := json.Marshal(map[string]any{"operation": "search", "query": "What is Hwaas?"})
