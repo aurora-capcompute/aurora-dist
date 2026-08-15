@@ -3,6 +3,7 @@ package dist
 import (
 	"context"
 	"encoding/json"
+	"slices"
 	"testing"
 
 	"github.com/aurora-capcompute/aurora-capcompute/aurora"
@@ -46,21 +47,32 @@ func TestProviderEnforcesMountFlow(t *testing.T) {
 		}
 	}
 
-	put := func(ctx context.Context) sys.SyscallResult {
-		result, err := dispatcher.Dispatch(ctx, aurora.ProcessContext{}, sys.Syscall{
-			Name: "core.memory", Args: json.RawMessage(`{"operation":"put","scope":"shared","space":"notes","key":"k","value":"v"}`)}, sys.Authorization{})
-		if err != nil {
-			t.Fatalf("dispatch put: %v", err)
+	// Per-mount flow policy reaches the published capability: the shared mount's
+	// write forbids untrusted_web, its read does not, and the runtime's monitor
+	// enforces that. Two mounts granting one operation would carry two policies
+	// — which is why a case is (operation, scope, space) and not the operation
+	// alone.
+	var memoryCapability sys.Capability
+	for _, capability := range dispatcher.Capabilities() {
+		if capability.Name == "core.memory" {
+			memoryCapability = capability
 		}
-		return result
 	}
-	// A run tainted with untrusted_web may not write.
-	if blocked := put(sys.WithTaint(context.Background(), []string{"untrusted_web"})); blocked.Status() != sys.StatusFailed || blocked.Errno() != sys.ErrnoDenied {
-		t.Fatalf("tainted put = %v/%v, want failed/denied", blocked.Status(), blocked.Errno())
+	write, ok := memoryCapability.FindOperation(
+		json.RawMessage(`{"operation":"put","scope":"shared","space":"notes"}`))
+	if !ok {
+		t.Fatalf("the shared put case is not published: %+v", memoryCapability.Operations)
 	}
-	// A clean run may.
-	if ok := put(context.Background()); ok.Status() != sys.StatusResult {
-		t.Fatalf("clean put = %v", ok.Status())
+	if !slices.Contains(write.Forbid, "untrusted_web") {
+		t.Fatalf("SECURITY: shared put forbids %v, want untrusted_web", write.Forbid)
+	}
+	read, ok := memoryCapability.FindOperation(
+		json.RawMessage(`{"operation":"get","scope":"shared","space":"notes"}`))
+	if !ok {
+		t.Fatalf("the shared get case is not published: %+v", memoryCapability.Operations)
+	}
+	if slices.Contains(read.Forbid, "untrusted_web") {
+		t.Fatalf("the read is a source, not a sink: forbids %v", read.Forbid)
 	}
 }
 
