@@ -42,17 +42,17 @@ func TestFlowBlocksOnyxToInternetExfil(t *testing.T) {
 	// Build the real drivers from a manifest: an Onyx search labeled "onyx_data",
 	// and an internet POST that forbids "onyx_data". Loopback http is used only so
 	// the test can observe (or not observe) the request reaching the wire.
-	var config builtin.Config
+	config := builtin.NewTable()
 	searchCfg := fmt.Sprintf(`{"allow_private_network":true,"capabilities":[`+
 		`{"operation":"search_onyx","method":"POST","base_url":%q,"path":"/api/search",`+
 		`"body":{"query":"{{query}}"},"params":{"query":{"type":"string","required":true}},`+
 		`"labels":["onyx_data"]}]}`, onyx.URL)
-	if err := (registry.HTTPTemplateRegistration{}).Configure(context.Background(), json.RawMessage(searchCfg), registry.Services{}, &config); err != nil {
+	if err := (registry.HTTPTemplateRegistration{}).Configure(context.Background(), json.RawMessage(searchCfg), registry.Services{}, config); err != nil {
 		t.Fatalf("configure template: %v", err)
 	}
 	netCfg := fmt.Sprintf(`{"allow_private_network":true,"capabilities":[`+
 		`{"methods":["POST"],"domain":%q,"taints":["onyx_data"]}]}`, exfil.URL)
-	if err := (registry.InternetRegistration{}).Configure(context.Background(), json.RawMessage(netCfg), registry.Services{}, &config); err != nil {
+	if err := (registry.InternetRegistration{}).Configure(context.Background(), json.RawMessage(netCfg), registry.Services{}, config); err != nil {
 		t.Fatalf("configure internet: %v", err)
 	}
 
