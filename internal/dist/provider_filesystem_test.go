@@ -39,13 +39,13 @@ func TestProviderServesFilesystemRead(t *testing.T) {
 	dispatcher := capability.NewDispatcher[aurora.ProcessContext](table)
 
 	published := false
-	for _, capability := range dispatcher.Capabilities() {
+	for _, capability := range table.Descriptors() {
 		if capability.Name == "core.filesystem" {
 			published = true
 		}
 	}
 	if !published {
-		t.Fatalf("core.filesystem was not published: %v", dispatcher.Capabilities())
+		t.Fatalf("core.filesystem was not published: %v", table.Descriptors())
 	}
 
 	result, err := dispatcher.Dispatch(context.Background(), aurora.ProcessContext{}, sys.Syscall{

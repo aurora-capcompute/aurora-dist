@@ -11,7 +11,6 @@ import (
 	"github.com/aurora-capcompute/aurora-dispatchers/internet"
 	"github.com/aurora-capcompute/aurora-dispatchers/openaillm"
 	"github.com/aurora-capcompute/aurora-dispatchers/registry"
-	"github.com/aurora-capcompute/capcompute/sys"
 )
 
 // The capability ceiling: a static, operator-configured list of capability
@@ -23,16 +22,16 @@ import (
 // layer in front of it is compromised. An empty ceiling means unrestricted —
 // the single-trusted-client posture.
 type ceiling struct {
-	allowed []sys.Capability
+	allowed map[string]struct{}
 }
 
 func newCeiling(names []string) *ceiling {
 	if len(names) == 0 {
 		return nil
 	}
-	allowed := make([]sys.Capability, 0, len(names))
+	allowed := make(map[string]struct{}, len(names))
 	for _, name := range names {
-		allowed = append(allowed, sys.Capability{Name: strings.TrimSpace(name)})
+		allowed[strings.TrimSpace(name)] = struct{}{}
 	}
 	return &ceiling{allowed: allowed}
 }
@@ -52,14 +51,10 @@ func (c *ceiling) check(manifest aurora.Manifest) error {
 	if err != nil {
 		return fmt.Errorf("%w: %v", aurora.ErrInvalid, err)
 	}
-	allowed := make(map[string]struct{}, len(c.allowed))
-	for _, capability := range c.allowed {
-		allowed[capability.Name] = struct{}{}
-	}
 	var refused []string
-	for _, capability := range requested {
-		if _, ok := allowed[capability.Name]; !ok {
-			refused = append(refused, capability.Name)
+	for _, name := range requested {
+		if _, ok := c.allowed[name]; !ok {
+			refused = append(refused, name)
 		}
 	}
 	if len(refused) > 0 {
@@ -83,9 +78,9 @@ func (c *ceiling) check(manifest aurora.Manifest) error {
 //	core.scratch                → core.scratch
 //	core.filesystem             → core.filesystem
 //	core.openaiApi              → core.openaiApi
-func grantedNames(syscalls []aurora.Syscall) ([]sys.Capability, error) {
-	var out []sys.Capability
-	add := func(name string) { out = append(out, sys.Capability{Name: name}) }
+func grantedNames(syscalls []aurora.Syscall) ([]string, error) {
+	var out []string
+	add := func(name string) { out = append(out, name) }
 	for _, grant := range syscalls {
 		switch grant.Syscall {
 		case aurora.TimerSyscall:
