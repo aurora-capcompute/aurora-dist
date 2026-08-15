@@ -9,7 +9,6 @@ import (
 	"github.com/aurora-capcompute/aurora-dispatchers/command"
 	"github.com/aurora-capcompute/aurora-dispatchers/filesystem"
 	"github.com/aurora-capcompute/aurora-dispatchers/internet"
-	"github.com/aurora-capcompute/aurora-dispatchers/memory"
 	"github.com/aurora-capcompute/aurora-dispatchers/openaillm"
 	"github.com/aurora-capcompute/aurora-dispatchers/registry"
 	"github.com/aurora-capcompute/capcompute/sys"
@@ -93,8 +92,6 @@ func grantedNames(syscalls []aurora.Syscall) ([]sys.Capability, error) {
 			add(aurora.TimerSyscall)
 		case internet.Capability:
 			add(internet.Capability)
-		case memory.Capability:
-			add(memory.Capability)
 		case registry.ScratchCapability:
 			add(registry.ScratchCapability)
 		case filesystem.Capability:

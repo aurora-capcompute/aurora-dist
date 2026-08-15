@@ -35,10 +35,9 @@ func TestProviderTemplateEndToEnd(t *testing.T) {
 	provider := newProvider(
 		[]registry.Registration{registry.HTTPTemplateRegistration{}},
 		registry.Services{
-			Tenant:      "acme",
-			MemoryStore: memory.NewMapStore(),
-			Secrets:     injectResolver{"ONYX_TOKEN": "tok-abc"},
-			AuditKey:    []byte("audit-key"),
+			Tenant:   "acme",
+			Secrets:  injectResolver{"ONYX_TOKEN": "tok-abc"},
+			AuditKey: []byte("audit-key"),
 		},
 	)
 	config := fmt.Sprintf(`{"base_url":%q,"allow_private_network":true,`+

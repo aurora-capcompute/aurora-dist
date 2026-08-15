@@ -21,7 +21,6 @@ import (
 	"time"
 
 	"github.com/aurora-capcompute/aurora-capcompute/aurora"
-	drivermem "github.com/aurora-capcompute/aurora-dispatchers/memory"
 	"github.com/aurora-capcompute/aurora-dispatchers/openaillm"
 	"github.com/aurora-capcompute/aurora-dispatchers/registry"
 
@@ -81,11 +80,7 @@ type Dist struct {
 	loopCancel context.CancelFunc
 	closers    []io.Closer
 	logger     *slog.Logger
-	// memoryKV and tenant back the read-only memory view (MemoryList /
-	// MemoryValue): the same store and tenant the core.memory driver writes,
-	// exposed to the trusted operator plane for inspection only.
-	memoryKV drivermem.Store
-	tenant   string
+	tenant     string
 }
 
 // New assembles and starts a distribution: stores, driver registry, runtime
@@ -99,19 +94,17 @@ func New(ctx context.Context, cfg Config) (*Dist, error) {
 	var (
 		log     aurora.EventLog
 		leases  aurora.Leases
-		kv      drivermem.Store
 		closers []io.Closer
 	)
 	if strings.TrimSpace(cfg.DataDir) == "" {
 		log = memory.NewEventLog()
 		leases = memory.NewLeases()
-		kv = memory.NewKV()
 	} else {
 		store, err := sqlite.Open(filepath.Join(cfg.DataDir, "aurora.db"))
 		if err != nil {
 			return nil, fmt.Errorf("open store: %w", err)
 		}
-		log, leases, kv = store, store, store
+		log, leases = store, store
 		closers = append(closers, store)
 	}
 
@@ -121,17 +114,15 @@ func New(ctx context.Context, cfg Config) (*Dist, error) {
 	}
 	provider := newProvider([]registry.Registration{
 		registry.InternetRegistration{},
-		registry.MemoryRegistration{},
 		registry.ScratchRegistration{},
 		registry.FilesystemRegistration{},
 		registry.HTTPTemplateRegistration{},
 		registry.CommandRegistration{},
 		openaillm.Registration{},
 	}, registry.Services{
-		Tenant:      tenant,
-		MemoryStore: kv,
-		Secrets:     cfg.Secrets,
-		AuditKey:    cfg.AuditKey,
+		Tenant:   tenant,
+		Secrets:  cfg.Secrets,
+		AuditKey: cfg.AuditKey,
 	})
 
 	dir := programs.Dir{Path: cfg.ProgramsDir}
@@ -185,7 +176,6 @@ func New(ctx context.Context, cfg Config) (*Dist, error) {
 		loopCancel: loopCancel,
 		closers:    closers,
 		logger:     logger,
-		memoryKV:   kv,
 		tenant:     tenant,
 	}
 	// Timers reconcile their armed set against runtime state on a ticker (and

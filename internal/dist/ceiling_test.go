@@ -21,12 +21,12 @@ func TestCeilingNilAllowsEverything(t *testing.T) {
 }
 
 func TestCeilingAttenuatesGrants(t *testing.T) {
-	c := newCeiling([]string{"core.internet", "sys.timer", "core.memory"})
+	c := newCeiling([]string{"core.internet", "sys.timer", "core.scratch"})
 
 	ok := manifestWith(
 		aurora.Syscall{Syscall: "core.internet"},
 		aurora.Syscall{Syscall: "sys.timer"},
-		aurora.Syscall{Syscall: "core.memory"},
+		aurora.Syscall{Syscall: "core.scratch"},
 	)
 	if err := c.check(ok); err != nil {
 		t.Fatalf("within ceiling rejected: %v", err)
@@ -77,7 +77,7 @@ func TestCeilingGatesFilesystemAndScratch(t *testing.T) {
 		t.Fatalf("a ceiling listing filesystem/scratch must admit their grants: %v", err)
 	}
 	// A ceiling that omits them still refuses (the gate stays real).
-	if err := newCeiling([]string{"core.memory"}).check(
+	if err := newCeiling([]string{"core.scratch"}).check(
 		manifestWith(aurora.Syscall{Syscall: "core.filesystem"})); err == nil {
 		t.Fatal("a ceiling without core.filesystem must refuse the grant")
 	}

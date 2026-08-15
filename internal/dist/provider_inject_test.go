@@ -39,10 +39,9 @@ func TestProviderInjectsCredentialEndToEnd(t *testing.T) {
 	provider := newProvider(
 		[]registry.Registration{registry.InternetRegistration{}},
 		registry.Services{
-			Tenant:      "acme",
-			MemoryStore: memory.NewMapStore(),
-			Secrets:     injectResolver{"ONYX_TOKEN": "tok-abc"},
-			AuditKey:    []byte("audit-key"),
+			Tenant:   "acme",
+			Secrets:  injectResolver{"ONYX_TOKEN": "tok-abc"},
+			AuditKey: []byte("audit-key"),
 		},
 	)
 	// The origin is the loopback test server (injection permits http only on

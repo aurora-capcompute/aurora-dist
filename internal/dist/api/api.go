@@ -59,8 +59,6 @@ func Handler(d *dist.Dist) http.Handler {
 	// s/<sessionID>, shared/<space>). Keys ride in query params because they
 	// contain slashes. There is deliberately no write: an operator put here
 	// would bypass the journaled syscall path and its taint stamping.
-	mux.HandleFunc("GET /v1/memory", h.listMemory)
-	mux.HandleFunc("GET /v1/memory/value", h.getMemoryValue)
 
 	mux.HandleFunc("GET /healthz", func(w http.ResponseWriter, _ *http.Request) {
 		w.WriteHeader(http.StatusOK)
@@ -133,27 +131,6 @@ func (h *handler) listPrograms(w http.ResponseWriter, _ *http.Request) {
 		})
 	}
 	writeJSON(w, out, nil)
-}
-
-// --- memory ---
-
-// memoryListResponse wraps the key list so the payload stays extensible.
-type memoryListResponse struct {
-	Keys []dist.MemoryEntry `json:"keys"`
-}
-
-func (h *handler) listMemory(w http.ResponseWriter, r *http.Request) {
-	entries, err := h.dist.MemoryList(r.Context(), r.URL.Query().Get("prefix"))
-	if err != nil {
-		writeError(w, err)
-		return
-	}
-	writeJSON(w, memoryListResponse{Keys: entries}, nil)
-}
-
-func (h *handler) getMemoryValue(w http.ResponseWriter, r *http.Request) {
-	value, err := h.dist.MemoryValue(r.Context(), r.URL.Query().Get("key"))
-	writeJSON(w, value, err)
 }
 
 type createSessionRequest struct {

@@ -546,7 +546,7 @@ func TestAgentLoopIsCapped(t *testing.T) {
 		calls.Add(1)
 		// Never finish: always ask for a synchronous memory read so the loop
 		// would run forever if it were not capped.
-		reply := `{"actions":[{"action":"core.memory","content":{"operation":"get","key":"k"}}]}`
+		reply := `{"actions":[{"action":"core.scratch","content":{"operation":"get","key":"k"}}]}`
 		payload, _ := json.Marshal(map[string]any{
 			"choices": []any{map[string]any{"message": map[string]any{"content": reply}}},
 		})
@@ -583,14 +583,14 @@ func TestAgentLoopIsCapped(t *testing.T) {
 		"capabilities":        []map[string]any{{"operation": "chat", "require_approval": false}},
 	})
 	memConfig, _ := json.Marshal(map[string]any{
-		"capabilities": []map[string]any{{"scope": "session", "operations": []string{"get"}}},
+		"capabilities": []map[string]any{{"operation": "get"}},
 	})
 	manifest := aurora.Manifest{
 		Version: aurora.ManifestVersion,
 		Program: "agent",
 		Syscalls: []aurora.Syscall{
 			{Syscall: "core.openaiApi", Config: llmConfig, Hidden: true},
-			{Syscall: "core.memory", Config: memConfig},
+			{Syscall: "core.scratch", Config: memConfig},
 		},
 	}
 
