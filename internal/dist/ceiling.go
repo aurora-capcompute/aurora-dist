@@ -70,14 +70,7 @@ func (c *ceiling) check(manifest aurora.Manifest) error {
 // capability, named for its syscall — its operations are cases of that one
 // capability's ADT, not separate names — so the ceiling gates families, not
 // individual operations (a manifest's `capabilities` list selects operations
-// within a granted family):
-//
-//	sys.timer                   → sys.timer (the runtime's own)
-//	core.internet               → core.internet
-//	core.memory                 → core.memory
-//	core.scratch                → core.scratch
-//	core.filesystem             → core.filesystem
-//	core.openaiApi              → core.openaiApi
+// within a granted family).
 func grantedNames(syscalls []aurora.Syscall) ([]string, error) {
 	var out []string
 	add := func(name string) { out = append(out, name) }

@@ -54,12 +54,6 @@ func Handler(d *dist.Dist) http.Handler {
 	// reconciled from the programs directory by the distribution's poller.
 	mux.HandleFunc("GET /v1/programs", h.listPrograms)
 
-	// Memory. Read-only: the tenant's durable memory as a browsable tree —
-	// physical keys are slash-paths under the scope prefixes (p/<processID>,
-	// s/<sessionID>, shared/<space>). Keys ride in query params because they
-	// contain slashes. There is deliberately no write: an operator put here
-	// would bypass the journaled syscall path and its taint stamping.
-
 	mux.HandleFunc("GET /healthz", func(w http.ResponseWriter, _ *http.Request) {
 		w.WriteHeader(http.StatusOK)
 		_, _ = w.Write([]byte("ok"))

@@ -56,8 +56,8 @@ The result is the deployable server that a client like
 | Feature | What it means |
 | --- | --- |
 | **One binary, one API** | Versioned `/v1` HTTP API from the start — the single way in |
-| **Compiled‑in drivers** | `core.internet`, `core.memory`, `core.scratch`, `core.filesystem`, `core.httpTemplate`, `core.openaiApi` (LLM), plus `sys.spawn` and `sys.timer` |
-| **Two store backends** | In‑memory (nothing survives restart) or SQLite (durable append‑only event log, leases, KV) — chosen by whether you set `-data` |
+| **Compiled‑in drivers** | `core.internet`, `core.scratch`, `core.filesystem`, `core.command`, `core.httpTemplate`, `core.openaiApi` (LLM), plus `sys.timer` and `sys.declassify` |
+| **Two store backends** | In‑memory (nothing survives restart) or SQLite (durable append‑only event log and leases) — chosen by whether you set `-data` |
 | **Durable timers** | `sys.timer` fires whether or not a client is attached; fire times are absolute and re‑armed at boot, so a restart never shifts a deadline |
 | **Program hot‑reload** | Loads `<name>.wasm` + `<name>.json` pairs from a directory and re‑scans on a ticker; edit a program and it reloads (a `.wasm` with no `.json` is refused) |
 | **Capability ceiling** | An operator allowlist of capability names; process creation refuses any manifest that grants beyond it (recursing through `sys.spawn`) |
@@ -206,8 +206,6 @@ the manifest file.)
 | `POST /v1/processes/{id}/stop` · `/retry` | steer (`{"mode":"resume"\|"restart"}`) |
 | `POST /v1/tasks/{id}/resolve` | `{resolution_token, resolution:{decision,…}}` |
 | `GET /v1/programs` | the loaded programs, each with its interface schema |
-| `GET /v1/memory?prefix=` | **read‑only** memory browse: stored keys (+ provenance labels) under a prefix — keys are slash‑paths under `p/<proc>`, `s/<session>`, `shared/<space>` |
-| `GET /v1/memory/value?key=` | one stored value with its version + labels (`found:false` if absent). No write route: memory is written only through the journaled `core.memory` syscall, so taint stamping can't be bypassed |
 | `GET /healthz` | returns `ok` |
 
 `GET /v1/sessions/{id}` returns everything about a session — metadata, history, and
