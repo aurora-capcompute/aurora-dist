@@ -1,8 +1,6 @@
-// Package sqlite is the distribution's durable store: an append-only event
-// log (one ordered stream per session), a lease table for cross-instance
-// coordination, and the tenant-memory KV behind core.memory — with the
-// activity memory that makes the driver's intent→completion crash window
-// exactly-once. The runtime folds the log into session/process/task
+// Package sqlite is the distribution's durable store: an append-only event log
+// (one ordered stream per session) and a lease table for cross-instance
+// coordination. The runtime folds the log into session/process/task
 // projections; there is no per-entity row store.
 package sqlite
 
@@ -10,18 +8,15 @@ import (
 	"context"
 	"database/sql"
 	"encoding/json"
-	"strings"
 	"time"
 
 	"github.com/aurora-capcompute/aurora-capcompute/aurora"
-	drivermem "github.com/aurora-capcompute/aurora-dispatchers/memory"
 	_ "github.com/mattn/go-sqlite3"
 )
 
 var (
 	_ aurora.EventLog = (*Store)(nil)
 	_ aurora.Leases   = (*Store)(nil)
-	_ drivermem.Store = (*Store)(nil)
 )
 
 type Store struct {
@@ -62,28 +57,7 @@ CREATE TABLE IF NOT EXISTS leases (
 	holder     TEXT NOT NULL,
 	expires_at TEXT NOT NULL
 );
-CREATE TABLE IF NOT EXISTS memory_values (
-	tenant_id TEXT    NOT NULL,
-	key       TEXT    NOT NULL,
-	value     BLOB    NOT NULL,
-	labels    TEXT    NOT NULL DEFAULT '[]',
-	version   INTEGER NOT NULL,
-	PRIMARY KEY (tenant_id, key)
-);
-CREATE TABLE IF NOT EXISTS memory_activities (
-	tenant_id  TEXT    NOT NULL,
-	activity   TEXT    NOT NULL,
-	version    INTEGER NOT NULL,
-	created_at TEXT    NOT NULL,
-	PRIMARY KEY (tenant_id, activity)
-);`
-	// memory_activities is the memory driver's activity memory: one row per
-	// executed put intent, written in the same transaction as the value it
-	// records, so a re-driven put either finds its row or the write never
-	// happened. Its own table — never rows in memory_values — so records can
-	// never leak through Get/List. created_at is the future GC handle: an
-	// intent older than the oldest journal that could re-drive it is dead
-	// weight, prunable whenever a journal-lifecycle story lands.
+`
 	_, err := s.db.ExecContext(ctx, schema)
 	return err
 }
@@ -208,142 +182,4 @@ func (s *Store) Release(ctx context.Context, tenantID, kind, resourceID, holder 
 	key := tenantID + "/" + kind + "/" + resourceID
 	_, err := s.db.ExecContext(ctx, `DELETE FROM leases WHERE key=? AND holder=?`, key, holder)
 	return err
-}
-
-// Get reads one tenant-memory key with its provenance labels and version.
-func (s *Store) Get(ctx context.Context, tenant, key string) (json.RawMessage, []string, int64, bool, error) {
-	var (
-		value   []byte
-		rawLbls string
-		version int64
-	)
-	err := s.db.QueryRowContext(ctx,
-		`SELECT value,labels,version FROM memory_values WHERE tenant_id=? AND key=?`,
-		tenant, key).Scan(&value, &rawLbls, &version)
-	if err == sql.ErrNoRows {
-		return nil, nil, 0, false, nil
-	}
-	if err != nil {
-		return nil, nil, 0, false, err
-	}
-	var labels []string
-	if err := json.Unmarshal([]byte(rawLbls), &labels); err != nil {
-		return nil, nil, 0, false, err
-	}
-	return append(json.RawMessage(nil), value...), labels, version, true, nil
-}
-
-// Put writes one tenant-memory key under the version expectation (PutAny /
-// PutAbsent / exact version), returning the new version or ErrConflict. A
-// non-empty activity key makes the write exactly-once: the dedupe check, the
-// write, and the activity record ride one transaction, so there is no window
-// in which the value is written but the intent unremembered — a re-driven put
-// either replays its recorded version or the write never happened.
-func (s *Store) Put(ctx context.Context, tenant, key string, value json.RawMessage, labels []string, expect int64, activity string) (int64, error) {
-	if labels == nil {
-		labels = []string{}
-	}
-	rawLbls, err := json.Marshal(labels)
-	if err != nil {
-		return 0, err
-	}
-	tx, err := s.db.BeginTx(ctx, nil)
-	if err != nil {
-		return 0, err
-	}
-	defer func() { _ = tx.Rollback() }()
-
-	if activity != "" {
-		var recorded int64
-		switch err := tx.QueryRowContext(ctx,
-			`SELECT version FROM memory_activities WHERE tenant_id=? AND activity=?`,
-			tenant, activity).Scan(&recorded); {
-		case err == sql.ErrNoRows:
-		case err != nil:
-			return 0, err
-		default:
-			return recorded, nil // this intent already wrote; replay its outcome
-		}
-	}
-	var version int64
-	exists := true
-	switch err := tx.QueryRowContext(ctx,
-		`SELECT version FROM memory_values WHERE tenant_id=? AND key=?`,
-		tenant, key).Scan(&version); {
-	case err == sql.ErrNoRows:
-		exists = false
-	case err != nil:
-		return 0, err
-	}
-	switch {
-	case expect == drivermem.PutAny:
-	case expect == drivermem.PutAbsent && exists:
-		return 0, drivermem.ErrConflict
-	case expect > 0 && (!exists || version != expect):
-		return 0, drivermem.ErrConflict
-	}
-	next := version + 1
-	if _, err := tx.ExecContext(ctx,
-		`INSERT INTO memory_values(tenant_id,key,value,labels,version) VALUES(?,?,?,?,?)
-		 ON CONFLICT(tenant_id,key) DO UPDATE SET value=excluded.value, labels=excluded.labels, version=excluded.version`,
-		tenant, key, []byte(value), string(rawLbls), next); err != nil {
-		return 0, err
-	}
-	if activity != "" {
-		if _, err := tx.ExecContext(ctx,
-			`INSERT INTO memory_activities(tenant_id,activity,version,created_at) VALUES(?,?,?,?)`,
-			tenant, activity, next, time.Now().UTC().Format(time.RFC3339Nano)); err != nil {
-			return 0, err
-		}
-	}
-	if err := tx.Commit(); err != nil {
-		return 0, err
-	}
-	return next, nil
-}
-
-// Activity reports whether a put under this activity key already executed for
-// the tenant, and the version it recorded.
-func (s *Store) Activity(ctx context.Context, tenant, activity string) (int64, bool, error) {
-	var version int64
-	err := s.db.QueryRowContext(ctx,
-		`SELECT version FROM memory_activities WHERE tenant_id=? AND activity=?`,
-		tenant, activity).Scan(&version)
-	if err == sql.ErrNoRows {
-		return 0, false, nil
-	}
-	if err != nil {
-		return 0, false, err
-	}
-	return version, true, nil
-}
-
-// List returns a tenant's memory keys under a prefix, sorted, each with the
-// provenance labels of its stored value so key names carry value taint.
-func (s *Store) List(ctx context.Context, tenant, prefix string) ([]drivermem.ListedKey, error) {
-	rows, err := s.db.QueryContext(ctx,
-		`SELECT key,labels FROM memory_values WHERE tenant_id=? ORDER BY key`, tenant)
-	if err != nil {
-		return nil, err
-	}
-	defer rows.Close()
-
-	var keys []drivermem.ListedKey
-	for rows.Next() {
-		var key, rawLbls string
-		if err := rows.Scan(&key, &rawLbls); err != nil {
-			return nil, err
-		}
-		// Segment-aware, tolerant of a trailing slash: "notes" and "notes/" both
-		// list the "notes" subtree ("notes/a", …) but never the sibling "notes2".
-		base := strings.TrimSuffix(prefix, "/")
-		if prefix == "" || key == prefix || strings.HasPrefix(key, base+"/") {
-			var labels []string
-			if err := json.Unmarshal([]byte(rawLbls), &labels); err != nil {
-				return nil, err
-			}
-			keys = append(keys, drivermem.ListedKey{Key: key, Labels: labels})
-		}
-	}
-	return keys, rows.Err()
 }

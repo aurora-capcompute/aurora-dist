@@ -1,9 +1,9 @@
 // Package memory provides in-memory implementations of the runtime's
-// persistence contracts: an append-only event log, a lease table, the
-// kernel's process table, and the tenant-memory KV store. The log, leases,
-// and KV suit tests and throwaway runs (durable persistence lives in the
-// sibling sqlite package); the process table is legitimately in-memory
-// everywhere, since the journal — not the instance — is the durable process.
+// persistence contracts: an append-only event log, a lease table, and the
+// kernel's process table. The log and leases suit tests and throwaway runs
+// (durable persistence lives in the sibling sqlite package); the process table
+// is legitimately in-memory everywhere, since the journal — not the instance —
+// is the durable process.
 package memory
 
 import (
