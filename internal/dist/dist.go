@@ -120,7 +120,6 @@ func New(ctx context.Context, cfg Config) (*Dist, error) {
 		registry.CommandRegistration{},
 		openaillm.Registration{},
 	}, registry.Services{
-		Tenant:   tenant,
 		Secrets:  cfg.Secrets,
 		AuditKey: cfg.AuditKey,
 	})

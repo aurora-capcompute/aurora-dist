@@ -11,7 +11,6 @@ import (
 
 	"github.com/aurora-capcompute/aurora-capcompute/aurora"
 	"github.com/aurora-capcompute/aurora-capcompute/capability"
-	"github.com/aurora-capcompute/aurora-dispatchers/memory"
 	"github.com/aurora-capcompute/aurora-dispatchers/registry"
 	"github.com/aurora-capcompute/capcompute/sys"
 )
@@ -36,7 +35,6 @@ func TestProviderTemplateEndToEnd(t *testing.T) {
 	provider := newProvider(
 		[]registry.Registration{registry.HTTPTemplateRegistration{}},
 		registry.Services{
-			Tenant:   "acme",
 			Secrets:  injectResolver{"ONYX_TOKEN": "tok-abc"},
 			AuditKey: []byte("audit-key"),
 		},
@@ -88,7 +86,7 @@ func TestProviderTemplateEndToEnd(t *testing.T) {
 func TestProviderTemplateFailsClosedOnMissingSecret(t *testing.T) {
 	provider := newProvider(
 		[]registry.Registration{registry.HTTPTemplateRegistration{}},
-		registry.Services{Tenant: "acme", MemoryStore: memory.NewMapStore(), Secrets: injectResolver{}},
+		registry.Services{Secrets: injectResolver{}},
 	)
 	manifest := aurora.Manifest{
 		Version: aurora.ManifestVersion,
