@@ -26,8 +26,12 @@ func newProvider(registrations []registry.Registration, services registry.Servic
 	return &provider{registry: registry.New(registrations...), services: services}
 }
 
-func (p *provider) Normalize(syscallType string, config json.RawMessage) (json.RawMessage, error) {
-	return p.registry.Normalize(syscallType, config)
+// ValidateConfig refuses a grant's config at the door — at CreateProcess, so a
+// bad manifest is a 400 rather than a process that dies on activation. It checks
+// by building what the spawn would build and discarding it, which is why there
+// is no second parser to keep in step with the real one.
+func (p *provider) ValidateConfig(syscallType string, config json.RawMessage) error {
+	return p.registry.ValidateConfig(context.Background(), syscallType, config, p.services)
 }
 
 func (p *provider) NewDispatcher(
