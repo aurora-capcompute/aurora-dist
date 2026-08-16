@@ -8,9 +8,10 @@ import (
 	"github.com/aurora-capcompute/aurora-capcompute/aurora"
 	"github.com/aurora-capcompute/aurora-dispatchers/command"
 	"github.com/aurora-capcompute/aurora-dispatchers/filesystem"
+	"github.com/aurora-capcompute/aurora-dispatchers/httptemplate"
 	"github.com/aurora-capcompute/aurora-dispatchers/internet"
 	"github.com/aurora-capcompute/aurora-dispatchers/openaillm"
-	"github.com/aurora-capcompute/aurora-dispatchers/registry"
+	"github.com/aurora-capcompute/aurora-dispatchers/scratch"
 )
 
 // The capability ceiling: a static, operator-configured list of capability
@@ -80,14 +81,14 @@ func grantedNames(syscalls []aurora.Syscall) ([]string, error) {
 			add(aurora.TimerSyscall)
 		case internet.Capability:
 			add(internet.Capability)
-		case registry.ScratchCapability:
-			add(registry.ScratchCapability)
+		case scratch.Capability:
+			add(scratch.Capability)
 		case filesystem.Capability:
 			add(filesystem.Capability)
 		case command.Capability:
 			add(command.Capability)
-		case registry.HTTPTemplateSyscall:
-			add(registry.HTTPTemplateSyscall)
+		case httptemplate.Capability:
+			add(httptemplate.Capability)
 		case openaillm.SyscallType:
 			add(openaillm.SyscallType)
 		case aurora.DeclassifySyscall:

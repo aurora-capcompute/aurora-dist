@@ -11,6 +11,8 @@ import (
 
 	"github.com/aurora-capcompute/aurora-capcompute/capability"
 	"github.com/aurora-capcompute/aurora-capcompute/monitor"
+	"github.com/aurora-capcompute/aurora-dispatchers/httptemplate"
+	"github.com/aurora-capcompute/aurora-dispatchers/internet"
 	"github.com/aurora-capcompute/aurora-dispatchers/registry"
 	"github.com/aurora-capcompute/capcompute/sys"
 )
@@ -47,7 +49,7 @@ func TestFlowBlocksOnyxToInternetExfil(t *testing.T) {
 		`{"operation":"search_onyx","method":"POST","base_url":%q,"path":"/api/search",`+
 		`"body":{"query":"{{query}}"},"params":{"query":{"type":"string","required":true}},`+
 		`"labels":["onyx_data"]}]}`, onyx.URL)
-	template, err := (registry.HTTPTemplateRegistration{}).Configure(
+	template, err := (httptemplate.Registration{}).Configure(
 		context.Background(), json.RawMessage(searchCfg), registry.Services{})
 	if err != nil {
 		t.Fatalf("configure template: %v", err)
@@ -57,7 +59,7 @@ func TestFlowBlocksOnyxToInternetExfil(t *testing.T) {
 	}
 	netCfg := fmt.Sprintf(`{"allow_private_network":true,"capabilities":[`+
 		`{"methods":["POST"],"domain":%q,"taints":["onyx_data"]}]}`, exfil.URL)
-	egress, err := (registry.InternetRegistration{}).Configure(
+	egress, err := (internet.Registration{}).Configure(
 		context.Background(), json.RawMessage(netCfg), registry.Services{})
 	if err != nil {
 		t.Fatalf("configure internet: %v", err)

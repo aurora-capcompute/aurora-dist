@@ -12,6 +12,7 @@ import (
 
 	"github.com/aurora-capcompute/aurora-capcompute/aurora"
 	"github.com/aurora-capcompute/aurora-capcompute/capability"
+	"github.com/aurora-capcompute/aurora-dispatchers/internet"
 	"github.com/aurora-capcompute/aurora-dispatchers/registry"
 	"github.com/aurora-capcompute/capcompute/sys"
 )
@@ -37,7 +38,7 @@ func TestProviderInjectsCredentialEndToEnd(t *testing.T) {
 	defer server.Close()
 
 	provider := newProvider(
-		[]registry.Registration{registry.InternetRegistration{}},
+		[]registry.Registration{internet.Registration{}},
 		registry.Services{
 			Secrets:  injectResolver{"ONYX_TOKEN": "tok-abc"},
 			AuditKey: []byte("audit-key"),
@@ -95,7 +96,7 @@ func TestProviderInjectsCredentialEndToEnd(t *testing.T) {
 // dispatcher — at activation — rather than dispatching without the credential.
 func TestProviderInjectionFailsClosedOnMissingSecret(t *testing.T) {
 	provider := newProvider(
-		[]registry.Registration{registry.InternetRegistration{}},
+		[]registry.Registration{internet.Registration{}},
 		registry.Services{Secrets: injectResolver{}},
 	)
 	manifest := aurora.Manifest{

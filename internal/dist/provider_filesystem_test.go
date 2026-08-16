@@ -9,6 +9,7 @@ import (
 
 	"github.com/aurora-capcompute/aurora-capcompute/aurora"
 	"github.com/aurora-capcompute/aurora-capcompute/capability"
+	"github.com/aurora-capcompute/aurora-dispatchers/filesystem"
 	"github.com/aurora-capcompute/aurora-dispatchers/registry"
 	"github.com/aurora-capcompute/capcompute/sys"
 )
@@ -23,7 +24,7 @@ func TestProviderServesFilesystemRead(t *testing.T) {
 		t.Fatal(err)
 	}
 	provider := newProvider(
-		[]registry.Registration{registry.FilesystemRegistration{}},
+		[]registry.Registration{filesystem.Registration{}},
 		registry.Services{},
 	)
 	manifest := aurora.Manifest{
@@ -78,7 +79,7 @@ func TestProviderServesFilesystemRead(t *testing.T) {
 func TestProviderFilesystemRootConfinement(t *testing.T) {
 	dir := t.TempDir()
 	provider := newProvider(
-		[]registry.Registration{registry.FilesystemRegistration{}},
+		[]registry.Registration{filesystem.Registration{}},
 		registry.Services{},
 	)
 	manifest := aurora.Manifest{

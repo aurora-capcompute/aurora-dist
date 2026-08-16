@@ -10,6 +10,7 @@ import (
 
 	"github.com/aurora-capcompute/aurora-capcompute/capability"
 	"github.com/aurora-capcompute/aurora-capcompute/monitor"
+	"github.com/aurora-capcompute/aurora-dispatchers/internet"
 	"github.com/aurora-capcompute/aurora-dispatchers/registry"
 	"github.com/aurora-capcompute/capcompute/sys"
 )
@@ -33,7 +34,7 @@ func TestInternetMenuAdmitsAGrantedCall(t *testing.T) {
 
 	table := capability.NewTable()
 	config := fmt.Sprintf(`{"allow_private_network":true,"capabilities":[{"methods":["GET","POST"],"domain":%q}]}`, origin.URL)
-	family, err := (registry.InternetRegistration{}).Configure(
+	family, err := (internet.Registration{}).Configure(
 		context.Background(), json.RawMessage(config), registry.Services{})
 	if err != nil {
 		t.Fatalf("configure internet: %v", err)
