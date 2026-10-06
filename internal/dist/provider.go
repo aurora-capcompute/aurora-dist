@@ -12,8 +12,8 @@ import (
 // provider adapts the dispatcher registry to the runtime's injected
 // DispatcherProvider contract. It is the whole of the distribution's driver
 // policy: the compiled-in registration set decides which tool types exist,
-// and services carry the deployment-scoped backends (the tenant memory store).
-// There is no per-binding warmup or secret resolution here — manifests arrive
+// and services carry the deployment-scoped secret resolver and audit key.
+// There is no per-binding warmup here — manifests arrive
 // per-process from the single trusted client, already carrying their driver
 // config; the policy layer in front of multi-principal deployments is a
 // separate service (D3).

@@ -16,7 +16,7 @@ import (
 
 // The capability ceiling: a static, operator-configured list of capability
 // names this deployment may ever grant. CreateProcess refuses manifests
-// granting beyond it — monitor.Attenuate at the door. It is defense in depth, not
+// granting beyond it. It is defense in depth, not
 // the reference monitor: the kernel's Validator still mediates every syscall
 // against the per-process grant set; the ceiling merely guarantees the dist
 // cannot exceed what its operator configured even if the (future) policy
@@ -37,9 +37,8 @@ func newCeiling(names []string) *ceiling {
 	return &ceiling{allowed: allowed}
 }
 
-// check derives the capability names a manifest's grant set would publish —
-// for every node of the spawn tree, since spawned children are granted at
-// the same door — and verifies the whole set against the ceiling. The
+// check derives the capability names a manifest's grant set would publish and
+// verifies the whole set against the ceiling. The
 // derivation mirrors what each compiled-in registration publishes; it is
 // deliberately static (no driver construction), which it can be because every
 // grant publishes exactly one capability named for its syscall (grantedNames),

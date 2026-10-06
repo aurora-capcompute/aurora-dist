@@ -22,7 +22,7 @@ build" sense — not "distributed node.")
 It takes the [aurora-capcompute](https://github.com/aurora-capcompute/aurora-capcompute)
 runtime and:
 
-- compiles in a fixed set of **drivers** (internet, LLM, memory, filesystem, …),
+- compiles in a fixed set of **drivers** (internet, LLM, scratch, filesystem, …),
 - wires in a concrete **store** (in‑memory for throwaway runs, or SQLite for
   durability),
 - runs the always‑on **services** (firing timers, hot‑reloading programs, enforcing
@@ -60,7 +60,7 @@ The result is the deployable server that a client like
 | **Two store backends** | In‑memory (nothing survives restart) or SQLite (durable append‑only event log and leases) — chosen by whether you set `-data` |
 | **Durable timers** | `sys.timer` fires whether or not a client is attached; fire times are absolute and re‑armed at boot, so a restart never shifts a deadline |
 | **Program hot‑reload** | Loads `<name>.wasm` + `<name>.json` pairs from a directory and re‑scans on a ticker; edit a program and it reloads (a `.wasm` with no `.json` is refused) |
-| **Capability ceiling** | An operator allowlist of capability names; process creation refuses any manifest that grants beyond it (recursing through `sys.spawn`) |
+| **Capability ceiling** | An operator allowlist of capability names; process creation refuses any manifest that grants beyond it |
 | **Crash recovery** | On boot it re‑drives every process a host failure left mid‑flight, idempotently |
 | **Host‑held secrets** | Manifests reference a secret by name; the value comes from `AURORA_SECRET_<NAME>` and never enters the manifest, journal, or guest |
 | **"One read, many views"** | `GET /v1/sessions/{id}` returns the entire session log; every narrower view is a client‑side grouping of that one payload |
@@ -209,8 +209,7 @@ the manifest file.)
 | `GET /healthz` | returns `ok` |
 
 `GET /v1/sessions/{id}` returns everything about a session — metadata, history, and
-every process with its full state, delegation links, journal across all revisions,
-and tasks. The call graph, a single revision, a task list — every narrower view is a
+every process with its full state, journal across all revisions, and tasks. The call graph, a single revision, a task list — every narrower view is a
 client‑side grouping of that one payload. There is no separate `/graph`,
 `/journal`, or `/tasks` endpoint by design.
 
@@ -226,7 +225,7 @@ internal/dist/
   api/                      the /v1 HTTP handlers
   programs/                 loads *.wasm + *.json pairs, hot-reload
   timers/                   the durable sys.timer reconcile/fire loop
-  store/memory/             in-memory event log, leases, KV, process table
+  store/memory/             in-memory event log and leases
   store/sqlite/             durable SQLite store
 ```
 

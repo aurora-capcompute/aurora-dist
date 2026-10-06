@@ -797,8 +797,7 @@ func TestAgentOffloadsLargeInternetRead(t *testing.T) {
 		// service would.
 		"allow_private_network": true,
 	})
-	// Offload lands in core.scratch — process-local and ephemeral, never the
-	// durable tenant memory.
+	// Offload lands in core.scratch — process-local and ephemeral.
 	scratchConfig, _ := json.Marshal(map[string]any{
 		"capabilities": []map[string]any{{"operation": "put"}, {"operation": "get"}, {"operation": "search"}},
 	})

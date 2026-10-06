@@ -62,7 +62,7 @@ func main() {
 func run() error {
 	var (
 		configPath  = flag.String("config", "", "path to a JSON config file")
-		addr        = flag.String("addr", "", "listen address (default :8080)")
+		addr        = flag.String("addr", "", "listen address (default "+defaultAddr+")")
 		dataDir     = flag.String("data", "", "data directory for the SQLite store (empty = in-memory)")
 		programsDir = flag.String("programs", "", "directory of *.wasm program artifacts")
 		tenantID    = flag.String("tenant", "", "tenant id (default \"local\")")

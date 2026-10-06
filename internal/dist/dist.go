@@ -1,6 +1,6 @@
 // Package dist assembles the Aurora distribution: the aurora-capcompute
-// runtime compiled together with a fixed driver set (builtin router,
-// internet, memory, openaillm), concrete stores (in-memory or
+// runtime compiled together with a fixed driver set (internet, scratch,
+// filesystem, httptemplate, command, openaillm), concrete stores (in-memory or
 // SQLite), and the runtime-adjacent services that must not live in terminals
 // — timer firing, the program directory kept in sync with the runtime by
 // polling, and the static capability ceiling. One binary, one HTTP API in
