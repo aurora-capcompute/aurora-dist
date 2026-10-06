@@ -1,1 +1,4 @@
 dist.pid
+# go build ./cmd/aurora-dist output
+/aurora-dist
+/bin/
