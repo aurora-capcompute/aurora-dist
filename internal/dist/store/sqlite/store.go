@@ -24,7 +24,11 @@ type Store struct {
 }
 
 func Open(path string) (*Store, error) {
-	db, err := sql.Open("sqlite3", path+"?_foreign_keys=on&_busy_timeout=5000&_journal_mode=WAL")
+	// synchronous=FULL: WAL's default (NORMAL) keeps a commit across a process
+	// crash but may lose the last commits on an OS crash or power loss. A lost
+	// intent record would let an effect run again with no trace of the first
+	// run, so every commit is fsynced.
+	db, err := sql.Open("sqlite3", path+"?_foreign_keys=on&_busy_timeout=5000&_journal_mode=WAL&_synchronous=FULL")
 	if err != nil {
 		return nil, err
 	}

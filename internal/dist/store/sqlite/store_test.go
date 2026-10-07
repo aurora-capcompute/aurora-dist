@@ -92,3 +92,20 @@ func TestLeasesExclusivity(t *testing.T) {
 		t.Fatal("could not acquire after release")
 	}
 }
+
+// Every commit reaches the disk before it returns: an intent the journal
+// acknowledged must survive power loss, not just a process crash.
+func TestStoreFsyncsEveryCommit(t *testing.T) {
+	store, err := Open(filepath.Join(t.TempDir(), "aurora.db"))
+	if err != nil {
+		t.Fatalf("open: %v", err)
+	}
+	defer store.Close()
+	var mode int
+	if err := store.db.QueryRow(`PRAGMA synchronous`).Scan(&mode); err != nil {
+		t.Fatal(err)
+	}
+	if mode != 2 {
+		t.Fatalf("synchronous = %d, want 2 (FULL)", mode)
+	}
+}
