@@ -58,41 +58,6 @@ func TestEventLogAppendReadDurable(t *testing.T) {
 	}
 }
 
-func TestLeasesExclusivity(t *testing.T) {
-	ctx := context.Background()
-	store, err := Open(filepath.Join(t.TempDir(), "leases.db"))
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer store.Close()
-	now := time.Unix(1000, 0)
-
-	ok, err := store.Acquire(ctx, "t", "process", "p1", "instanceA", now, time.Minute)
-	if err != nil || !ok {
-		t.Fatalf("first acquire ok=%v err=%v", ok, err)
-	}
-	// A different holder is rejected while the lease is live.
-	if ok, _ := store.Acquire(ctx, "t", "process", "p1", "instanceB", now, time.Minute); ok {
-		t.Fatal("second holder acquired a live lease")
-	}
-	// The same holder can renew.
-	if ok, _ := store.Acquire(ctx, "t", "process", "p1", "instanceA", now, time.Minute); !ok {
-		t.Fatal("holder could not renew")
-	}
-	// After expiry, another holder may take it.
-	later := now.Add(2 * time.Minute)
-	if ok, _ := store.Acquire(ctx, "t", "process", "p1", "instanceB", later, time.Minute); !ok {
-		t.Fatal("could not acquire expired lease")
-	}
-	// Release by the owner frees it.
-	if err := store.Release(ctx, "t", "process", "p1", "instanceB"); err != nil {
-		t.Fatal(err)
-	}
-	if ok, _ := store.Acquire(ctx, "t", "process", "p1", "instanceA", later, time.Minute); !ok {
-		t.Fatal("could not acquire after release")
-	}
-}
-
 // Every commit reaches the disk before it returns: an intent the journal
 // acknowledged must survive power loss, not just a process crash.
 func TestStoreFsyncsEveryCommit(t *testing.T) {

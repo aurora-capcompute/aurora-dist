@@ -1,6 +1,5 @@
 // Package memory provides in-memory implementations of the distribution's
-// stores: an append-only event log, a lease table, and the sessions' scratch
-// spaces. They suit tests and throwaway runs; durable persistence lives in the
+// stores: an append-only event log and the sessions' scratch spaces. They suit tests and throwaway runs; durable persistence lives in the
 // sibling sqlite package.
 package memory
 
@@ -8,15 +7,11 @@ import (
 	"context"
 	"sort"
 	"sync"
-	"time"
 
 	"github.com/aurora-capcompute/aurora-capcompute/aurora"
 )
 
-var (
-	_ aurora.EventLog = (*EventLog)(nil)
-	_ aurora.Leases   = (*Leases)(nil)
-)
+var _ aurora.EventLog = (*EventLog)(nil)
 
 // EventLog is an in-memory append-only event log: one ordered stream per
 // session.
@@ -74,39 +69,4 @@ func (m *EventLog) Streams(_ context.Context, tenantID string) ([]aurora.LogScop
 	}
 	sort.Slice(out, func(i, j int) bool { return out[i].SessionID < out[j].SessionID })
 	return out, nil
-}
-
-// Leases is an in-memory lease table for cross-goroutine coordination in tests
-// and single-process runs.
-type Leases struct {
-	mu     sync.Mutex
-	leases map[string]leaseEntry
-}
-
-type leaseEntry struct {
-	holder    string
-	expiresAt time.Time
-}
-
-func NewLeases() *Leases { return &Leases{leases: make(map[string]leaseEntry)} }
-
-func (l *Leases) Acquire(_ context.Context, tenantID, kind, resourceID, holder string, now time.Time, ttl time.Duration) (bool, error) {
-	l.mu.Lock()
-	defer l.mu.Unlock()
-	key := tenantID + "/" + kind + "/" + resourceID
-	if e, ok := l.leases[key]; ok && e.holder != holder && now.Before(e.expiresAt) {
-		return false, nil
-	}
-	l.leases[key] = leaseEntry{holder: holder, expiresAt: now.Add(ttl)}
-	return true, nil
-}
-
-func (l *Leases) Release(_ context.Context, tenantID, kind, resourceID, holder string) error {
-	l.mu.Lock()
-	defer l.mu.Unlock()
-	key := tenantID + "/" + kind + "/" + resourceID
-	if e, ok := l.leases[key]; ok && e.holder == holder {
-		delete(l.leases, key)
-	}
-	return nil
 }

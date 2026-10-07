@@ -66,18 +66,3 @@ func TestResumeInterruptedRetriesTopmostOnly(t *testing.T) {
 		t.Fatalf("retried = %v, want %v (parked/yielded/completed untouched)", rt.retried, want)
 	}
 }
-
-func TestStableInstanceIDPersistsAcrossCalls(t *testing.T) {
-	dir := t.TempDir()
-	first, err := stableInstanceID(dir)
-	if err != nil || first == "" {
-		t.Fatalf("first = %q, err = %v", first, err)
-	}
-	second, err := stableInstanceID(dir)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if first != second {
-		t.Fatalf("instance id not stable across restarts: %q vs %q", first, second)
-	}
-}

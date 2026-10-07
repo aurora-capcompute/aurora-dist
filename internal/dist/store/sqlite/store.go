@@ -1,6 +1,5 @@
 // Package sqlite is the distribution's durable store: an append-only event log
-// (one ordered stream per session), a lease table for cross-instance
-// coordination, and each session's core.scratch space. The runtime folds the
+// (one ordered stream per session) and each session's core.scratch space. The runtime folds the
 // log into session/process/task projections; there is no per-entity row store.
 package sqlite
 
@@ -14,10 +13,7 @@ import (
 	_ "github.com/mattn/go-sqlite3"
 )
 
-var (
-	_ aurora.EventLog = (*Store)(nil)
-	_ aurora.Leases   = (*Store)(nil)
-)
+var _ aurora.EventLog = (*Store)(nil)
 
 type Store struct {
 	db *sql.DB
@@ -55,11 +51,6 @@ CREATE TABLE IF NOT EXISTS events (
 	revision    INTEGER NOT NULL DEFAULT 0,
 	data        BLOB,
 	PRIMARY KEY (tenant_id, session_id, seq)
-);
-CREATE TABLE IF NOT EXISTS leases (
-	key        TEXT PRIMARY KEY,
-	holder     TEXT NOT NULL,
-	expires_at TEXT NOT NULL
 );
 `
 	_, err := s.db.ExecContext(ctx, schema+scratchSchema)
@@ -145,45 +136,4 @@ func (s *Store) Streams(ctx context.Context, tenantID string) ([]aurora.LogScope
 		out = append(out, aurora.LogScope{TenantID: tenantID, SessionID: sessionID})
 	}
 	return out, rows.Err()
-}
-
-// Acquire grants or renews a lease unless a different holder's unexpired lease
-// exists.
-func (s *Store) Acquire(ctx context.Context, tenantID, kind, resourceID, holder string, now time.Time, ttl time.Duration) (bool, error) {
-	key := tenantID + "/" + kind + "/" + resourceID
-	tx, err := s.db.BeginTx(ctx, nil)
-	if err != nil {
-		return false, err
-	}
-	defer func() { _ = tx.Rollback() }()
-
-	var curHolder, curExpires string
-	switch err := tx.QueryRowContext(ctx,
-		`SELECT holder,expires_at FROM leases WHERE key=?`, key).Scan(&curHolder, &curExpires); {
-	case err == sql.ErrNoRows:
-	case err != nil:
-		return false, err
-	default:
-		expires, _ := time.Parse(time.RFC3339Nano, curExpires)
-		if curHolder != holder && now.Before(expires) {
-			return false, nil
-		}
-	}
-	if _, err := tx.ExecContext(ctx,
-		`INSERT INTO leases(key,holder,expires_at) VALUES(?,?,?)
-		 ON CONFLICT(key) DO UPDATE SET holder=excluded.holder, expires_at=excluded.expires_at`,
-		key, holder, now.Add(ttl).UTC().Format(time.RFC3339Nano)); err != nil {
-		return false, err
-	}
-	if err := tx.Commit(); err != nil {
-		return false, err
-	}
-	return true, nil
-}
-
-// Release drops a lease the holder owns.
-func (s *Store) Release(ctx context.Context, tenantID, kind, resourceID, holder string) error {
-	key := tenantID + "/" + kind + "/" + resourceID
-	_, err := s.db.ExecContext(ctx, `DELETE FROM leases WHERE key=? AND holder=?`, key, holder)
-	return err
 }

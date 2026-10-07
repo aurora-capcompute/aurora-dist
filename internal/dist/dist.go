@@ -9,13 +9,10 @@ package dist
 
 import (
 	"context"
-	"crypto/rand"
-	"encoding/hex"
 	"errors"
 	"fmt"
 	"io"
 	"log/slog"
-	"os"
 	"path/filepath"
 	"strings"
 	"time"
@@ -60,8 +57,6 @@ type Config struct {
 	// injected into a request (empty is allowed: a stable but unkeyed
 	// fingerprint). It is never the credential itself.
 	AuditKey []byte
-	// InstanceID identifies this instance for lease fencing.
-	InstanceID string
 
 	MaxConcurrentProcesses int
 
@@ -98,20 +93,18 @@ func New(ctx context.Context, cfg Config) (*Dist, error) {
 
 	var (
 		log     aurora.EventLog
-		leases  aurora.Leases
 		spaces  scratchSpaces
 		closers []io.Closer
 	)
 	if strings.TrimSpace(cfg.DataDir) == "" {
 		log = memory.NewEventLog()
-		leases = memory.NewLeases()
 		spaces = memory.NewScratchSpaces()
 	} else {
 		store, err := sqlite.Open(filepath.Join(cfg.DataDir, "aurora.db"))
 		if err != nil {
 			return nil, fmt.Errorf("open store: %w", err)
 		}
-		log, leases, spaces = store, store, store
+		log, spaces = store, store
 		closers = append(closers, store)
 	}
 
@@ -132,27 +125,11 @@ func New(ctx context.Context, cfg Config) (*Dist, error) {
 	}, spaces)
 
 	dir := programs.Dir{Path: cfg.ProgramsDir}
-	// A restart must reclaim the leases of the processes it was running: the
-	// process lease is keyed by holder id, so the restarted instance needs the
-	// *same* id to renew immediately rather than wait out the dead instance's
-	// lease. Persist a stable id beside the durable store; an explicit config
-	// id wins, and in-memory runs (no durable processes) keep a fresh id.
-	instanceID := strings.TrimSpace(cfg.InstanceID)
-	if instanceID == "" && strings.TrimSpace(cfg.DataDir) != "" {
-		id, idErr := stableInstanceID(cfg.DataDir)
-		if idErr != nil {
-			logger.Warn("stable instance id unavailable; a fast restart may wait out in-flight leases", "error", idErr)
-		} else {
-			instanceID = id
-		}
-	}
 	runtime, err := aurora.NewRuntime(ctx, aurora.Config{
 		Dispatchers:            provider,
 		Log:                    log,
-		Leases:                 leases,
 		TenantID:               tenant,
 		TaskSecret:             cfg.TaskSecret,
-		InstanceID:             instanceID,
 		MaxConcurrentProcesses: cfg.MaxConcurrentProcesses,
 	})
 	if err != nil {
@@ -199,8 +176,8 @@ func New(ctx context.Context, cfg Config) (*Dist, error) {
 
 // resumeInterrupted re-drives every process a host failure left mid-flight.
 // restore() marks processes that were running/queued/stopping at the crash as
-// interrupted — an interruption is external (shutdown, a scheduling or lease
-// conflict), never a program failure (which finishes as ProcessFailed) — so
+// interrupted — an interruption is external (shutdown or a quantum deadline),
+// never a program failure (which finishes as ProcessFailed) — so
 // re-driving is safe: replay serves the committed journal prefix, and only a
 // call whose completion was never journaled runs again.
 func (d *Dist) resumeInterrupted() {
@@ -218,28 +195,6 @@ func (d *Dist) resumeInterrupted() {
 			}
 		}
 	}
-}
-
-// stableInstanceID returns a lease-holder id that survives restarts: it reads
-// <dataDir>/instance_id if present, else mints one and persists it. Stability
-// is what lets a restarted instance renew (rather than wait out) the process
-// leases its previous life still holds.
-func stableInstanceID(dataDir string) (string, error) {
-	path := filepath.Join(dataDir, "instance_id")
-	if raw, err := os.ReadFile(path); err == nil {
-		if id := strings.TrimSpace(string(raw)); id != "" {
-			return id, nil
-		}
-	}
-	var buf [16]byte
-	if _, err := rand.Read(buf[:]); err != nil {
-		return "", err
-	}
-	id := "inst_" + hex.EncodeToString(buf[:])
-	if err := os.WriteFile(path, []byte(id), 0o600); err != nil {
-		return "", err
-	}
-	return id, nil
 }
 
 // CreateSession creates a session with an optional explicit name (its handle,
