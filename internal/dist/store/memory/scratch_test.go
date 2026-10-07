@@ -13,7 +13,7 @@ import (
 func TestScratchSpacesAreOnePerSession(t *testing.T) {
 	ctx := context.Background()
 	spaces := NewScratchSpaces()
-	if _, err := spaces.ScratchSpace("t", "ses1").Put(ctx, "k", json.RawMessage(`1`), nil, drivermem.PutAny, ""); err != nil {
+	if _, err := spaces.ScratchSpace("t", "ses1").Put(ctx, "k", json.RawMessage(`1`), nil, drivermem.PutAny); err != nil {
 		t.Fatal(err)
 	}
 	if _, _, _, ok, _ := spaces.ScratchSpace("t", "ses1").Get(ctx, "k"); !ok {

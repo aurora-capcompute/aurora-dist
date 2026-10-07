@@ -61,7 +61,7 @@ The result is the deployable server that a client like
 | **Durable timers** | `sys.timer` fires whether or not a client is attached; fire times are absolute and re‑armed at boot, so a restart never shifts a deadline |
 | **Program hot‑reload** | Loads `<name>.wasm` + `<name>.json` pairs from a directory and re‑scans on a ticker; edit a program and it reloads (a `.wasm` with no `.json` is refused) |
 | **Capability ceiling** | An operator allowlist of capability names; process creation refuses any manifest that grants beyond it |
-| **Crash recovery** | On boot it re‑drives every process a host failure left mid‑flight, idempotently |
+| **Crash recovery** | On boot it re‑drives every process a host failure left mid‑flight; replay serves recorded results, and only a call whose completion was never journaled runs again |
 | **Host‑held secrets** | Manifests reference a secret by name; the value comes from `AURORA_SECRET_<NAME>` and never enters the manifest, journal, or guest |
 | **"One read, many views"** | `GET /v1/sessions/{id}` returns the entire session log; every narrower view is a client‑side grouping of that one payload |
 

@@ -201,8 +201,8 @@ func New(ctx context.Context, cfg Config) (*Dist, error) {
 // restore() marks processes that were running/queued/stopping at the crash as
 // interrupted — an interruption is external (shutdown, a scheduling or lease
 // conflict), never a program failure (which finishes as ProcessFailed) — so
-// re-driving is safe and idempotent: replay serves the committed journal
-// prefix and re-executes only from the last open savepoint.
+// re-driving is safe: replay serves the committed journal prefix, and only a
+// call whose completion was never journaled runs again.
 func (d *Dist) resumeInterrupted() {
 	for _, summary := range d.Runtime.ListSessions() {
 		session, err := d.Runtime.GetSession(summary.ID)

@@ -18,23 +18,11 @@ CREATE TABLE IF NOT EXISTS scratch_values (
 	version    INTEGER NOT NULL,
 	PRIMARY KEY (tenant_id, session_id, key)
 );
-CREATE TABLE IF NOT EXISTS scratch_activities (
-	tenant_id  TEXT    NOT NULL,
-	session_id TEXT    NOT NULL,
-	activity   TEXT    NOT NULL,
-	version    INTEGER NOT NULL,
-	PRIMARY KEY (tenant_id, session_id, activity)
-);
 `
 
 // ScratchSpace is one session's durable core.scratch space. Every query is
 // bound to the tenant and session, so the driver that holds it can reach no
 // other session's keys.
-//
-// scratch_activities is the activity memory: one row per executed put intent,
-// written in the same transaction as the value it records, so a re-driven put
-// either finds its row or the write never happened. It is its own table, never
-// rows in scratch_values, so a record cannot leak through Get or List.
 func (s *Store) ScratchSpace(tenant, session string) drivermem.Store {
 	return scratchSpace{db: s.db, tenant: tenant, session: session}
 }
@@ -67,9 +55,9 @@ func (sp scratchSpace) Get(ctx context.Context, key string) (json.RawMessage, []
 	return value, labels, version, true, nil
 }
 
-// Put writes key under the version expectation. With an activity key, the
-// dedupe check, the write and the activity record share one transaction.
-func (sp scratchSpace) Put(ctx context.Context, key string, value json.RawMessage, labels []string, expect int64, activity string) (int64, error) {
+// Put writes key under the version expectation; the version check and the
+// write share one transaction.
+func (sp scratchSpace) Put(ctx context.Context, key string, value json.RawMessage, labels []string, expect int64) (int64, error) {
 	if labels == nil {
 		labels = []string{}
 	}
@@ -83,18 +71,6 @@ func (sp scratchSpace) Put(ctx context.Context, key string, value json.RawMessag
 	}
 	defer func() { _ = tx.Rollback() }()
 
-	if activity != "" {
-		var recorded int64
-		switch err := tx.QueryRowContext(ctx,
-			`SELECT version FROM scratch_activities WHERE tenant_id=? AND session_id=? AND activity=?`,
-			sp.tenant, sp.session, activity).Scan(&recorded); {
-		case err == sql.ErrNoRows:
-		case err != nil:
-			return 0, err
-		default:
-			return recorded, nil // this intent already wrote; replay its outcome
-		}
-	}
 	var current int64 // zero when absent
 	switch err := tx.QueryRowContext(ctx,
 		`SELECT version FROM scratch_values WHERE tenant_id=? AND session_id=? AND key=?`,
@@ -113,31 +89,10 @@ func (sp scratchSpace) Put(ctx context.Context, key string, value json.RawMessag
 		sp.tenant, sp.session, key, []byte(value), string(rawLbls), next); err != nil {
 		return 0, err
 	}
-	if activity != "" {
-		if _, err := tx.ExecContext(ctx,
-			`INSERT INTO scratch_activities(tenant_id,session_id,activity,version) VALUES(?,?,?,?)`,
-			sp.tenant, sp.session, activity, next); err != nil {
-			return 0, err
-		}
-	}
 	if err := tx.Commit(); err != nil {
 		return 0, err
 	}
 	return next, nil
-}
-
-func (sp scratchSpace) Activity(ctx context.Context, activity string) (int64, bool, error) {
-	var version int64
-	err := sp.db.QueryRowContext(ctx,
-		`SELECT version FROM scratch_activities WHERE tenant_id=? AND session_id=? AND activity=?`,
-		sp.tenant, sp.session, activity).Scan(&version)
-	if err == sql.ErrNoRows {
-		return 0, false, nil
-	}
-	if err != nil {
-		return 0, false, err
-	}
-	return version, true, nil
 }
 
 // List returns the keys at or under prefix — whole path segments, so "notes"
