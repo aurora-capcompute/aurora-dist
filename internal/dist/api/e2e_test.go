@@ -294,7 +294,7 @@ func TestDistributionEndToEnd(t *testing.T) {
 
 	// The timer task resolved as completed by the timer actor.
 	tasks := logged.Tasks
-	if len(tasks) != 1 || tasks[0].State != aurora.TaskStateExecuted && tasks[0].State != aurora.TaskStateCompleted {
+	if len(tasks) != 1 || tasks[0].State != aurora.TaskStateCompleted {
 		t.Fatalf("tasks = %+v", tasks)
 	}
 	if tasks[0].Resolution.Actor != "timer" {
