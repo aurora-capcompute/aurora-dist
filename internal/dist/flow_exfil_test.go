@@ -20,8 +20,6 @@ import (
 // flowCred is a minimal process identity for the flow monitor.
 type flowCred struct{ pid string }
 
-func (c flowCred) PID() string { return c.pid }
-
 // After the agent reads Onyx, it must not be able to post that content out.
 // This exercises the whole kernel flow path end to end over the real drivers:
 // the labeled core.httpTemplate search taints the run automatically (no manual
@@ -72,7 +70,7 @@ func TestFlowBlocksOnyxToInternetExfil(t *testing.T) {
 	// halves reading the same index the routing dispatcher does. The guard
 	// accumulates every observed label into the run's taint and refuses a syscall
 	// whose forbidden set intersects it.
-	flow := monitor.NewFlow[string, flowCred](monitor.NewTaints[string](), config)
+	flow := monitor.NewFlow(monitor.NewTaints[flowCred](), config)
 	chain := flow.Guard(flow.Stamp(capability.NewDispatcher[flowCred](config)))
 
 	dispatch := func(cred flowCred, name string, args map[string]any) sys.SyscallResult {
