@@ -5,7 +5,7 @@ import (
 	"database/sql"
 	"encoding/json"
 
-	drivermem "github.com/aurora-capcompute/aurora-dispatchers/memory"
+	"github.com/aurora-capcompute/aurora-dispatchers/scratch"
 )
 
 const scratchSchema = `
@@ -22,7 +22,7 @@ CREATE TABLE IF NOT EXISTS scratch_values (
 // ScratchSpace is one session's durable core.scratch space. Every query is
 // bound to the session, so the driver that holds it can reach no other
 // session's keys.
-func (s *Store) ScratchSpace(session string) drivermem.Store {
+func (s *Store) ScratchSpace(session string) scratch.Store {
 	return scratchSpace{db: s.db, session: session}
 }
 
@@ -77,8 +77,8 @@ func (sp scratchSpace) Put(ctx context.Context, key string, value json.RawMessag
 	case err != nil:
 		return 0, err
 	}
-	if expect != drivermem.PutAny && expect != current {
-		return 0, drivermem.ErrConflict
+	if expect != scratch.PutAny && expect != current {
+		return 0, scratch.ErrConflict
 	}
 	next := current + 1
 	if _, err := tx.ExecContext(ctx,
@@ -95,7 +95,7 @@ func (sp scratchSpace) Put(ctx context.Context, key string, value json.RawMessag
 
 // List returns the keys at or under prefix — whole path segments, so "notes"
 // lists "notes/a" but never "notes2" — sorted, each with its value's labels.
-func (sp scratchSpace) List(ctx context.Context, prefix string) ([]drivermem.ListedKey, error) {
+func (sp scratchSpace) List(ctx context.Context, prefix string) ([]scratch.ListedKey, error) {
 	rows, err := sp.db.QueryContext(ctx,
 		`SELECT key,labels FROM scratch_values
 		 WHERE session_id=? AND (?='' OR key=? OR substr(key,1,length(?)+1)=?||'/')
@@ -106,7 +106,7 @@ func (sp scratchSpace) List(ctx context.Context, prefix string) ([]drivermem.Lis
 	}
 	defer rows.Close()
 
-	var keys []drivermem.ListedKey
+	var keys []scratch.ListedKey
 	for rows.Next() {
 		var key, rawLbls string
 		if err := rows.Scan(&key, &rawLbls); err != nil {
@@ -116,7 +116,7 @@ func (sp scratchSpace) List(ctx context.Context, prefix string) ([]drivermem.Lis
 		if err := json.Unmarshal([]byte(rawLbls), &labels); err != nil {
 			return nil, err
 		}
-		keys = append(keys, drivermem.ListedKey{Key: key, Labels: labels})
+		keys = append(keys, scratch.ListedKey{Key: key, Labels: labels})
 	}
 	return keys, rows.Err()
 }

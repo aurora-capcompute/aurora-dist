@@ -6,33 +6,40 @@ import (
 
 	"github.com/aurora-capcompute/aurora-capcompute/aurora"
 	"github.com/aurora-capcompute/aurora-capcompute/capability"
-	drivermem "github.com/aurora-capcompute/aurora-dispatchers/memory"
 	"github.com/aurora-capcompute/aurora-dispatchers/registry"
+	"github.com/aurora-capcompute/aurora-dispatchers/scratch"
 )
 
 // provider adapts the dispatcher registry to the runtime's injected
 // DispatcherProvider contract. It is the whole of the distribution's driver
-// policy: the compiled-in registration set decides which tool types exist,
+// policy: the compiled-in registrations decide which tool types exist,
 // services carry the deployment-scoped secret resolver and audit key, and the
-// scratch spaces give each build its session's core.scratch store.
-// There is no per-binding warmup here — manifests arrive
-// per-process from the single trusted client, already carrying their driver
-// config; the policy layer in front of multi-principal deployments is a
-// separate service (D3).
+// scratch spaces give each build core.scratch over its own session's store.
+// There is no per-binding warmup here — manifests arrive per-process from the
+// single trusted client, already carrying their driver config; the policy
+// layer in front of multi-principal deployments is a separate service (D3).
 type provider struct {
-	registry *registry.Registry
-	services registry.Services
-	scratch  scratchSpaces
+	// registrations are the compiled-in drivers other than core.scratch, which
+	// is registered per build over the session's store.
+	registrations []registry.Registration
+	services      registry.Services
+	scratch       scratchSpaces
 }
 
 // scratchSpaces hands out one session's durable core.scratch store. The store
 // is bound to the session, so the driver built over it cannot reach another.
 type scratchSpaces interface {
-	ScratchSpace(session string) drivermem.Store
+	ScratchSpace(session string) scratch.Store
 }
 
-func newProvider(registrations []registry.Registration, services registry.Services, scratch scratchSpaces) *provider {
-	return &provider{registry: registry.New(registrations...), services: services, scratch: scratch}
+func newProvider(registrations []registry.Registration, services registry.Services, spaces scratchSpaces) *provider {
+	return &provider{registrations: registrations, services: services, scratch: spaces}
+}
+
+// drivers is the registry for one build: the compiled-in drivers and
+// core.scratch over store. A config check has no process and passes nil.
+func (p *provider) drivers(store scratch.Store) *registry.Registry {
+	return registry.New(append([]registry.Registration{scratch.Registration{Store: store}}, p.registrations...)...)
 }
 
 // ValidateConfig refuses a grant's config at the door — at CreateProcess, so a
@@ -40,7 +47,7 @@ func newProvider(registrations []registry.Registration, services registry.Servic
 // by building what the spawn would build and discarding it, which is why there
 // is no second parser to keep in step with the real one.
 func (p *provider) ValidateConfig(syscallType string, config json.RawMessage) error {
-	return p.registry.ValidateConfig(context.Background(), syscallType, config, p.services)
+	return p.drivers(nil).ValidateConfig(context.Background(), syscallType, config, p.services)
 }
 
 func (p *provider) NewDispatcher(
@@ -55,9 +62,7 @@ func (p *provider) NewDispatcher(
 			Syscall: grant.Syscall, Config: grant.Config, Hidden: grant.Hidden,
 		})
 	}
-	// The scratch space is the one per-process service: the credential, never
-	// the manifest, names the session whose store the build gets.
-	services := p.services
-	services.Scratch = p.scratch.ScratchSpace(cred.SessionID)
-	return p.registry.Build(ctx, entries, services)
+	// The credential, never the manifest, names the session whose store
+	// core.scratch gets.
+	return p.drivers(p.scratch.ScratchSpace(cred.SessionID)).Build(ctx, entries, p.services)
 }

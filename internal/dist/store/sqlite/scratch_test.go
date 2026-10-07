@@ -8,7 +8,7 @@ import (
 	"slices"
 	"testing"
 
-	drivermem "github.com/aurora-capcompute/aurora-dispatchers/memory"
+	"github.com/aurora-capcompute/aurora-dispatchers/scratch"
 )
 
 func openScratch(t *testing.T, path string) *Store {
@@ -27,7 +27,7 @@ func TestScratchSurvivesReopen(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "aurora.db")
 
 	store := openScratch(t, path)
-	if _, err := store.ScratchSpace("ses1").Put(ctx, "notes/a", json.RawMessage(`"kept"`), []string{"untrusted_web"}, drivermem.PutAbsent); err != nil {
+	if _, err := store.ScratchSpace("ses1").Put(ctx, "notes/a", json.RawMessage(`"kept"`), []string{"untrusted_web"}, scratch.PutAbsent); err != nil {
 		t.Fatalf("put: %v", err)
 	}
 	if err := store.Close(); err != nil {
@@ -48,7 +48,7 @@ func TestScratchSessionsAreIsolated(t *testing.T) {
 	store := openScratch(t, filepath.Join(t.TempDir(), "aurora.db"))
 	defer store.Close()
 
-	if _, err := store.ScratchSpace("ses1").Put(ctx, "secret", json.RawMessage(`1`), nil, drivermem.PutAny); err != nil {
+	if _, err := store.ScratchSpace("ses1").Put(ctx, "secret", json.RawMessage(`1`), nil, scratch.PutAny); err != nil {
 		t.Fatalf("put: %v", err)
 	}
 	other := store.ScratchSpace("ses2")
@@ -68,13 +68,13 @@ func TestScratchStoreContract(t *testing.T) {
 	defer store.Close()
 	space := store.ScratchSpace("ses1")
 
-	if v, err := space.Put(ctx, "notes/a", json.RawMessage(`"one"`), nil, drivermem.PutAbsent); err != nil || v != 1 {
+	if v, err := space.Put(ctx, "notes/a", json.RawMessage(`"one"`), nil, scratch.PutAbsent); err != nil || v != 1 {
 		t.Fatalf("create = %d, %v", v, err)
 	}
-	if _, err := space.Put(ctx, "notes/a", json.RawMessage(`"again"`), nil, drivermem.PutAbsent); !errors.Is(err, drivermem.ErrConflict) {
+	if _, err := space.Put(ctx, "notes/a", json.RawMessage(`"again"`), nil, scratch.PutAbsent); !errors.Is(err, scratch.ErrConflict) {
 		t.Fatalf("create on an existing key = %v, want ErrConflict", err)
 	}
-	if _, err := space.Put(ctx, "notes/a", json.RawMessage(`"x"`), nil, 7); !errors.Is(err, drivermem.ErrConflict) {
+	if _, err := space.Put(ctx, "notes/a", json.RawMessage(`"x"`), nil, 7); !errors.Is(err, scratch.ErrConflict) {
 		t.Fatalf("stale CAS = %v, want ErrConflict", err)
 	}
 	if value, _, _, _, _ := space.Get(ctx, "notes/a"); string(value) != `"one"` {
@@ -85,7 +85,7 @@ func TestScratchStoreContract(t *testing.T) {
 	}
 
 	for _, key := range []string{"notes2", "notes/b/c"} {
-		if _, err := space.Put(ctx, key, json.RawMessage(`0`), nil, drivermem.PutAny); err != nil {
+		if _, err := space.Put(ctx, key, json.RawMessage(`0`), nil, scratch.PutAny); err != nil {
 			t.Fatal(err)
 		}
 	}

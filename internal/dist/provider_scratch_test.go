@@ -18,7 +18,7 @@ import (
 // processes of one session share it, and a process of another session — with
 // the identical grant — sees none of it.
 func TestScratchSpaceFollowsTheCredentialsSession(t *testing.T) {
-	provider := newProvider([]registry.Registration{scratch.Registration{}}, registry.Services{}, distmem.NewScratchSpaces())
+	provider := newProvider(nil, registry.Services{}, distmem.NewScratchSpaces())
 	manifest := aurora.Manifest{
 		Version: aurora.ManifestVersion,
 		Syscalls: []aurora.Syscall{

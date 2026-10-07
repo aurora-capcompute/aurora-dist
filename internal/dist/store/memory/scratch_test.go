@@ -5,7 +5,7 @@ import (
 	"encoding/json"
 	"testing"
 
-	drivermem "github.com/aurora-capcompute/aurora-dispatchers/memory"
+	"github.com/aurora-capcompute/aurora-dispatchers/scratch"
 )
 
 // Every call for one session returns the same space; another session gets its
@@ -13,7 +13,7 @@ import (
 func TestScratchSpacesAreOnePerSession(t *testing.T) {
 	ctx := context.Background()
 	spaces := NewScratchSpaces()
-	if _, err := spaces.ScratchSpace("ses1").Put(ctx, "k", json.RawMessage(`1`), nil, drivermem.PutAny); err != nil {
+	if _, err := spaces.ScratchSpace("ses1").Put(ctx, "k", json.RawMessage(`1`), nil, scratch.PutAny); err != nil {
 		t.Fatal(err)
 	}
 	if _, _, _, ok, _ := spaces.ScratchSpace("ses1").Get(ctx, "k"); !ok {

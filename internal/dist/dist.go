@@ -25,7 +25,6 @@ import (
 	"github.com/aurora-capcompute/aurora-dispatchers/filesystem"
 	"github.com/aurora-capcompute/aurora-dispatchers/httptemplate"
 	"github.com/aurora-capcompute/aurora-dispatchers/internet"
-	"github.com/aurora-capcompute/aurora-dispatchers/scratch"
 	"github.com/aurora-capcompute/aurora-dist/internal/dist/programs"
 	"github.com/aurora-capcompute/aurora-dist/internal/dist/store/memory"
 	"github.com/aurora-capcompute/aurora-dist/internal/dist/store/sqlite"
@@ -101,7 +100,6 @@ func New(ctx context.Context, cfg Config) (*Dist, error) {
 
 	provider := newProvider([]registry.Registration{
 		internet.Registration{},
-		scratch.Registration{},
 		filesystem.Registration{},
 		httptemplate.Registration{},
 		command.Registration{},
