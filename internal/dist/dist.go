@@ -2,8 +2,8 @@
 // runtime compiled together with a fixed driver set (internet, scratch,
 // filesystem, httptemplate, command, openaillm), concrete stores (in-memory or
 // SQLite), and the runtime-adjacent services that must not live in terminals
-// — timer firing, the program directory kept in sync with the runtime by
-// polling, and the static capability ceiling. One binary, one HTTP API in
+// — the program directory kept in sync with the runtime by polling, and the
+// static capability ceiling. One binary, one HTTP API in
 // front (internal/api).
 package dist
 
@@ -29,7 +29,6 @@ import (
 	"github.com/aurora-capcompute/aurora-dist/internal/dist/programs"
 	"github.com/aurora-capcompute/aurora-dist/internal/dist/store/memory"
 	"github.com/aurora-capcompute/aurora-dist/internal/dist/store/sqlite"
-	"github.com/aurora-capcompute/aurora-dist/internal/dist/timers"
 )
 
 // Config wires one distribution instance.
@@ -60,9 +59,6 @@ type Config struct {
 
 	MaxConcurrentProcesses int
 
-	// TimerReconcileInterval is how often the timer service reconciles its
-	// armed timers against runtime state (0 = 1s).
-	TimerReconcileInterval time.Duration
 	// ProgramReloadInterval is how often the programs directory is re-scanned
 	// into the runtime (0 = 10s).
 	ProgramReloadInterval time.Duration
@@ -73,7 +69,6 @@ type Config struct {
 // Dist is a running distribution: the runtime plus its compiled-in services.
 type Dist struct {
 	Runtime  aurora.Runtime
-	Timers   *timers.Service
 	Programs programs.Dir
 
 	ceiling    *ceiling
@@ -84,7 +79,7 @@ type Dist struct {
 }
 
 // New assembles and starts a distribution: stores, driver registry, runtime
-// (restoring persisted sessions), and the timer + program reconcile loops.
+// (restoring persisted sessions), and the program reload loop.
 func New(ctx context.Context, cfg Config) (*Dist, error) {
 	logger := cfg.Logger
 	if logger == nil {
@@ -153,7 +148,6 @@ func New(ctx context.Context, cfg Config) (*Dist, error) {
 	loopCtx, loopCancel := context.WithCancel(context.Background())
 	d := &Dist{
 		Runtime:    runtime,
-		Timers:     timers.New(runtime, logger),
 		Programs:   dir,
 		ceiling:    newCeiling(cfg.CapabilityCeiling),
 		loopCancel: loopCancel,
@@ -161,10 +155,8 @@ func New(ctx context.Context, cfg Config) (*Dist, error) {
 		logger:     logger,
 		tenant:     tenant,
 	}
-	// Timers reconcile their armed set against runtime state on a ticker (and
-	// once now, for boot recovery); the programs directory is re-scanned into
-	// the runtime on its own ticker so in-memory programs track the filesystem.
-	d.Timers.Start(loopCtx, cfg.TimerReconcileInterval)
+	// The programs directory is re-scanned into the runtime on a ticker so
+	// in-memory programs track the filesystem.
 	d.startProgramReload(loopCtx, cfg.ProgramReloadInterval)
 	// A host restart is not a process failure: re-drive everything the crash
 	// left mid-flight so recovery needs no human. Parked processes (a timer, an
@@ -248,13 +240,12 @@ func (d *Dist) startProgramReload(ctx context.Context, interval time.Duration) {
 	}()
 }
 
-// Close shuts the distribution down: stops the reconcile loops and timers,
-// closes the runtime (bounded by ctx), then the stores.
+// Close shuts the distribution down: stops the program reload loop, closes the
+// runtime (bounded by ctx), then the stores.
 func (d *Dist) Close(ctx context.Context) error {
 	if d.loopCancel != nil {
 		d.loopCancel()
 	}
-	d.Timers.StopAll()
 	errs := []error{d.Runtime.Close(ctx)}
 	for _, closer := range d.closers {
 		errs = append(errs, closer.Close())

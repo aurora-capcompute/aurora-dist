@@ -45,10 +45,9 @@ type fileConfig struct {
 	Programs struct {
 		Dir string `json:"dir,omitempty"`
 	} `json:"programs"`
-	CapabilityCeiling     []string `json:"capability_ceiling,omitempty"`
-	MaxConcurrent         int      `json:"max_concurrent_processes,omitempty"`
-	TimerReconcileSeconds int      `json:"timer_reconcile_seconds,omitempty"`
-	ProgramReloadSeconds  int      `json:"program_reload_seconds,omitempty"`
+	CapabilityCeiling    []string `json:"capability_ceiling,omitempty"`
+	MaxConcurrent        int      `json:"max_concurrent_processes,omitempty"`
+	ProgramReloadSeconds int      `json:"program_reload_seconds,omitempty"`
 }
 
 func main() {
@@ -128,7 +127,6 @@ func run() error {
 		Secrets:                dist.NewEnvSecretResolver(),
 		AuditKey:               auditKey,
 		MaxConcurrentProcesses: cfg.MaxConcurrent,
-		TimerReconcileInterval: time.Duration(cfg.TimerReconcileSeconds) * time.Second,
 		ProgramReloadInterval:  time.Duration(cfg.ProgramReloadSeconds) * time.Second,
 		Logger:                 logger,
 	})

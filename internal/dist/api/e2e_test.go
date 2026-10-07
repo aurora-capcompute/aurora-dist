@@ -3,8 +3,8 @@ package api_test
 // The distribution end-to-end: the real Rust agent program (built from the
 // sibling aurora-brains checkout) driven through the real HTTP API, with an
 // OpenAI-compatible stub as cognition. The scripted model first sets a
-// one-second timer — exercising the durable-task path and the distribution's
-// timer reconcile/firing loop — then finishes. Everything is observed the way
+// one-second timer — exercising the durable-task path and the runtime's task
+// sweep, which fires it — then finishes. Everything is observed the way
 // a terminal would observe it: REST snapshots and the journal.
 
 import (
@@ -236,8 +236,8 @@ func TestDistributionEndToEnd(t *testing.T) {
 		t.Fatalf("process = %+v", process)
 	}
 
-	// The process sets a 1s timer (a durable task) which the distribution's
-	// timer service fires; then the model finishes.
+	// The process sets a 1s timer (a durable task) which the runtime's task
+	// sweep fires; then the model finishes.
 	deadline := time.Now().Add(60 * time.Second)
 	for {
 		c.do(http.MethodGet, "/v1/processes/"+process.ID, nil, &process)
@@ -304,8 +304,8 @@ func TestDistributionEndToEnd(t *testing.T) {
 
 // A distribution restart mid-wait: the process parks on a durable timer task
 // in SQLite, the whole distribution shuts down, and a fresh assembly restores
-// the session, re-arms the elapsed timer, fires it, and drives the process to
-// completion — drain-and-restart with no live state carried over.
+// the session, fires the elapsed timer, and drives the process to completion —
+// drain-and-restart with no live state carried over.
 func TestDistributionRestartRecoversTimers(t *testing.T) {
 	wasm := buildProgram(t)
 
@@ -338,8 +338,8 @@ func TestDistributionRestartRecoversTimers(t *testing.T) {
 		"manifest": testManifest(llm.URL + "/v1"),
 	}, &process)
 
-	// Wait for the park on the timer task, then kill the first instance
-	// before the timer can fire.
+	// Wait for the park on the timer task, then shut the first instance down
+	// before the one-second timer can fire.
 	deadline := time.Now().Add(30 * time.Second)
 	for process.Status != aurora.ProcessWaitingTask {
 		if time.Now().After(deadline) {
@@ -348,7 +348,6 @@ func TestDistributionRestartRecoversTimers(t *testing.T) {
 		time.Sleep(20 * time.Millisecond)
 		c.do(http.MethodGet, "/v1/processes/"+process.ID, nil, &process)
 	}
-	first.Timers.StopAll() // simulate dying before the fire
 	server.Close()
 	closeCtx, closeCancel := context.WithTimeout(context.Background(), 15*time.Second)
 	if err := first.Close(closeCtx); err != nil {
@@ -372,8 +371,8 @@ func TestDistributionRestartRecoversTimers(t *testing.T) {
 	defer server.Close()
 	c = &client{t: t, base: server.URL, http: server.Client()}
 
-	// Recovery re-armed the elapsed timer, fired it immediately, and the
-	// process finished on the new instance.
+	// The new instance's first sweep fired the elapsed timer, and the process
+	// finished on it.
 	deadline = time.Now().Add(60 * time.Second)
 	for {
 		c.do(http.MethodGet, "/v1/processes/"+process.ID, nil, &process)
