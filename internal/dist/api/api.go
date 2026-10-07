@@ -117,7 +117,7 @@ func (h *handler) listPrograms(w http.ResponseWriter, _ *http.Request) {
 	for _, program := range registered {
 		out = append(out, programResponse{
 			ID:          program.ID.String(),
-			Digest:      program.Digest.ArtifactDigest,
+			Digest:      program.Digest,
 			Description: program.Description,
 			Input:       program.Input,
 			Output:      program.Output,
