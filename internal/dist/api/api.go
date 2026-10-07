@@ -127,7 +127,7 @@ func (h *handler) listPrograms(w http.ResponseWriter, _ *http.Request) {
 }
 
 type createSessionRequest struct {
-	// Name is the session's explicit handle (unique per tenant; empty = unnamed,
+	// Name is the session's explicit handle (unique; empty = unnamed,
 	// the id is then the handle).
 	Name string            `json:"name,omitempty"`
 	Tags map[string]string `json:"tags,omitempty"`

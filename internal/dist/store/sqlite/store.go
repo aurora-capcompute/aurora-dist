@@ -42,7 +42,6 @@ func (s *Store) Close() error { return s.db.Close() }
 func (s *Store) migrate(ctx context.Context) error {
 	const schema = `
 CREATE TABLE IF NOT EXISTS events (
-	tenant_id   TEXT    NOT NULL,
 	session_id  TEXT    NOT NULL,
 	seq         INTEGER NOT NULL,
 	kind        TEXT    NOT NULL,
@@ -50,7 +49,7 @@ CREATE TABLE IF NOT EXISTS events (
 	process_id  TEXT    NOT NULL DEFAULT '',
 	revision    INTEGER NOT NULL DEFAULT 0,
 	data        BLOB,
-	PRIMARY KEY (tenant_id, session_id, seq)
+	PRIMARY KEY (session_id, seq)
 );
 `
 	_, err := s.db.ExecContext(ctx, schema+scratchSchema)
@@ -59,7 +58,7 @@ CREATE TABLE IF NOT EXISTS events (
 
 // Append atomically appends events to a session's stream, assigning each the
 // next contiguous sequence, and returns the new head.
-func (s *Store) Append(ctx context.Context, scope aurora.LogScope, events ...aurora.LogEvent) (uint64, error) {
+func (s *Store) Append(ctx context.Context, sessionID string, events ...aurora.LogEvent) (uint64, error) {
 	tx, err := s.db.BeginTx(ctx, nil)
 	if err != nil {
 		return 0, err
@@ -68,16 +67,16 @@ func (s *Store) Append(ctx context.Context, scope aurora.LogScope, events ...aur
 
 	var head uint64
 	if err := tx.QueryRowContext(ctx,
-		`SELECT COALESCE(MAX(seq), 0) FROM events WHERE tenant_id=? AND session_id=?`,
-		scope.TenantID, scope.SessionID).Scan(&head); err != nil {
+		`SELECT COALESCE(MAX(seq), 0) FROM events WHERE session_id=?`,
+		sessionID).Scan(&head); err != nil {
 		return 0, err
 	}
 	for _, ev := range events {
 		head++
 		if _, err := tx.ExecContext(ctx,
-			`INSERT INTO events(tenant_id,session_id,seq,kind,occurred_at,process_id,revision,data)
-			 VALUES(?,?,?,?,?,?,?,?)`,
-			scope.TenantID, scope.SessionID, head, ev.Kind,
+			`INSERT INTO events(session_id,seq,kind,occurred_at,process_id,revision,data)
+			 VALUES(?,?,?,?,?,?,?)`,
+			sessionID, head, ev.Kind,
 			ev.Time.UTC().Format(time.RFC3339Nano), ev.Proc, ev.Rev, []byte(ev.Data)); err != nil {
 			return 0, err
 		}
@@ -89,11 +88,11 @@ func (s *Store) Append(ctx context.Context, scope aurora.LogScope, events ...aur
 }
 
 // Read returns a stream's events with seq > after, in order.
-func (s *Store) Read(ctx context.Context, scope aurora.LogScope, after uint64) ([]aurora.LogEvent, error) {
+func (s *Store) Read(ctx context.Context, sessionID string, after uint64) ([]aurora.LogEvent, error) {
 	rows, err := s.db.QueryContext(ctx,
 		`SELECT seq,kind,occurred_at,process_id,revision,data FROM events
-		 WHERE tenant_id=? AND session_id=? AND seq>? ORDER BY seq`,
-		scope.TenantID, scope.SessionID, after)
+		 WHERE session_id=? AND seq>? ORDER BY seq`,
+		sessionID, after)
 	if err != nil {
 		return nil, err
 	}
@@ -118,22 +117,21 @@ func (s *Store) Read(ctx context.Context, scope aurora.LogScope, after uint64) (
 	return out, rows.Err()
 }
 
-// Streams lists the session scopes that have events for a tenant.
-func (s *Store) Streams(ctx context.Context, tenantID string) ([]aurora.LogScope, error) {
-	rows, err := s.db.QueryContext(ctx,
-		`SELECT DISTINCT session_id FROM events WHERE tenant_id=? ORDER BY session_id`, tenantID)
+// Sessions lists the sessions that have events.
+func (s *Store) Sessions(ctx context.Context) ([]string, error) {
+	rows, err := s.db.QueryContext(ctx, `SELECT DISTINCT session_id FROM events ORDER BY session_id`)
 	if err != nil {
 		return nil, err
 	}
 	defer rows.Close()
 
-	var out []aurora.LogScope
+	var out []string
 	for rows.Next() {
 		var sessionID string
 		if err := rows.Scan(&sessionID); err != nil {
 			return nil, err
 		}
-		out = append(out, aurora.LogScope{TenantID: tenantID, SessionID: sessionID})
+		out = append(out, sessionID)
 	}
 	return out, rows.Err()
 }

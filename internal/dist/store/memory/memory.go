@@ -17,17 +17,17 @@ var _ aurora.EventLog = (*EventLog)(nil)
 // session.
 type EventLog struct {
 	mu      sync.RWMutex
-	streams map[aurora.LogScope][]aurora.LogEvent
+	streams map[string][]aurora.LogEvent
 }
 
 func NewEventLog() *EventLog {
-	return &EventLog{streams: make(map[aurora.LogScope][]aurora.LogEvent)}
+	return &EventLog{streams: make(map[string][]aurora.LogEvent)}
 }
 
-func (m *EventLog) Append(_ context.Context, scope aurora.LogScope, events ...aurora.LogEvent) (uint64, error) {
+func (m *EventLog) Append(_ context.Context, sessionID string, events ...aurora.LogEvent) (uint64, error) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
-	existing := m.streams[scope]
+	existing := m.streams[sessionID]
 	head := uint64(len(existing))
 	if len(events) == 0 {
 		return head, nil
@@ -39,14 +39,14 @@ func (m *EventLog) Append(_ context.Context, scope aurora.LogScope, events ...au
 		ev.Data = append([]byte(nil), ev.Data...)
 		appended[i] = ev
 	}
-	m.streams[scope] = append(existing, appended...)
+	m.streams[sessionID] = append(existing, appended...)
 	return head, nil
 }
 
-func (m *EventLog) Read(_ context.Context, scope aurora.LogScope, after uint64) ([]aurora.LogEvent, error) {
+func (m *EventLog) Read(_ context.Context, sessionID string, after uint64) ([]aurora.LogEvent, error) {
 	m.mu.RLock()
 	defer m.mu.RUnlock()
-	stream := m.streams[scope]
+	stream := m.streams[sessionID]
 	if after >= uint64(len(stream)) {
 		return nil, nil
 	}
@@ -58,15 +58,15 @@ func (m *EventLog) Read(_ context.Context, scope aurora.LogScope, after uint64) 
 	return out, nil
 }
 
-func (m *EventLog) Streams(_ context.Context, tenantID string) ([]aurora.LogScope, error) {
+func (m *EventLog) Sessions(context.Context) ([]string, error) {
 	m.mu.RLock()
 	defer m.mu.RUnlock()
-	var out []aurora.LogScope
-	for scope, stream := range m.streams {
-		if scope.TenantID == tenantID && len(stream) > 0 {
-			out = append(out, scope)
+	var out []string
+	for sessionID, stream := range m.streams {
+		if len(stream) > 0 {
+			out = append(out, sessionID)
 		}
 	}
-	sort.Slice(out, func(i, j int) bool { return out[i].SessionID < out[j].SessionID })
+	sort.Strings(out)
 	return out, nil
 }

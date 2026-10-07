@@ -40,7 +40,6 @@ const defaultAddr = "127.0.0.1:8080"
 // fileConfig is the optional JSON config file. Flags override its fields.
 type fileConfig struct {
 	Addr     string `json:"addr,omitempty"`
-	TenantID string `json:"tenant_id,omitempty"`
 	DataDir  string `json:"data_dir,omitempty"`
 	Programs struct {
 		Dir string `json:"dir,omitempty"`
@@ -63,7 +62,6 @@ func run() error {
 		addr        = flag.String("addr", "", "listen address (default "+defaultAddr+")")
 		dataDir     = flag.String("data", "", "data directory for the SQLite store (empty = in-memory)")
 		programsDir = flag.String("programs", "", "directory of *.wasm program artifacts")
-		tenantID    = flag.String("tenant", "", "tenant id (default \"local\")")
 		showVersion = flag.Bool("version", false, "print version and exit")
 	)
 	flag.Parse()
@@ -119,7 +117,6 @@ func run() error {
 		}
 	}
 	d, err := dist.New(ctx, dist.Config{
-		TenantID:               pick(*tenantID, cfg.TenantID, ""),
 		DataDir:                pick(*dataDir, cfg.DataDir, ""),
 		ProgramsDir:            pick(*programsDir, cfg.Programs.Dir, ""),
 		CapabilityCeiling:      cfg.CapabilityCeiling,

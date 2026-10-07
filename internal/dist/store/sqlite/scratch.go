@@ -10,26 +10,24 @@ import (
 
 const scratchSchema = `
 CREATE TABLE IF NOT EXISTS scratch_values (
-	tenant_id  TEXT    NOT NULL,
 	session_id TEXT    NOT NULL,
 	key        TEXT    NOT NULL,
 	value      BLOB    NOT NULL,
 	labels     TEXT    NOT NULL DEFAULT '[]',
 	version    INTEGER NOT NULL,
-	PRIMARY KEY (tenant_id, session_id, key)
+	PRIMARY KEY (session_id, key)
 );
 `
 
 // ScratchSpace is one session's durable core.scratch space. Every query is
-// bound to the tenant and session, so the driver that holds it can reach no
-// other session's keys.
-func (s *Store) ScratchSpace(tenant, session string) drivermem.Store {
-	return scratchSpace{db: s.db, tenant: tenant, session: session}
+// bound to the session, so the driver that holds it can reach no other
+// session's keys.
+func (s *Store) ScratchSpace(session string) drivermem.Store {
+	return scratchSpace{db: s.db, session: session}
 }
 
 type scratchSpace struct {
 	db      *sql.DB
-	tenant  string
 	session string
 }
 
@@ -40,8 +38,8 @@ func (sp scratchSpace) Get(ctx context.Context, key string) (json.RawMessage, []
 		version int64
 	)
 	err := sp.db.QueryRowContext(ctx,
-		`SELECT value,labels,version FROM scratch_values WHERE tenant_id=? AND session_id=? AND key=?`,
-		sp.tenant, sp.session, key).Scan(&value, &rawLbls, &version)
+		`SELECT value,labels,version FROM scratch_values WHERE session_id=? AND key=?`,
+		sp.session, key).Scan(&value, &rawLbls, &version)
 	if err == sql.ErrNoRows {
 		return nil, nil, 0, false, nil
 	}
@@ -73,8 +71,8 @@ func (sp scratchSpace) Put(ctx context.Context, key string, value json.RawMessag
 
 	var current int64 // zero when absent
 	switch err := tx.QueryRowContext(ctx,
-		`SELECT version FROM scratch_values WHERE tenant_id=? AND session_id=? AND key=?`,
-		sp.tenant, sp.session, key).Scan(&current); {
+		`SELECT version FROM scratch_values WHERE session_id=? AND key=?`,
+		sp.session, key).Scan(&current); {
 	case err == sql.ErrNoRows:
 	case err != nil:
 		return 0, err
@@ -84,9 +82,9 @@ func (sp scratchSpace) Put(ctx context.Context, key string, value json.RawMessag
 	}
 	next := current + 1
 	if _, err := tx.ExecContext(ctx,
-		`INSERT INTO scratch_values(tenant_id,session_id,key,value,labels,version) VALUES(?,?,?,?,?,?)
-		 ON CONFLICT(tenant_id,session_id,key) DO UPDATE SET value=excluded.value, labels=excluded.labels, version=excluded.version`,
-		sp.tenant, sp.session, key, []byte(value), string(rawLbls), next); err != nil {
+		`INSERT INTO scratch_values(session_id,key,value,labels,version) VALUES(?,?,?,?,?)
+		 ON CONFLICT(session_id,key) DO UPDATE SET value=excluded.value, labels=excluded.labels, version=excluded.version`,
+		sp.session, key, []byte(value), string(rawLbls), next); err != nil {
 		return 0, err
 	}
 	if err := tx.Commit(); err != nil {
@@ -100,9 +98,9 @@ func (sp scratchSpace) Put(ctx context.Context, key string, value json.RawMessag
 func (sp scratchSpace) List(ctx context.Context, prefix string) ([]drivermem.ListedKey, error) {
 	rows, err := sp.db.QueryContext(ctx,
 		`SELECT key,labels FROM scratch_values
-		 WHERE tenant_id=? AND session_id=? AND (?='' OR key=? OR substr(key,1,length(?)+1)=?||'/')
+		 WHERE session_id=? AND (?='' OR key=? OR substr(key,1,length(?)+1)=?||'/')
 		 ORDER BY key`,
-		sp.tenant, sp.session, prefix, prefix, prefix, prefix)
+		sp.session, prefix, prefix, prefix, prefix)
 	if err != nil {
 		return nil, err
 	}

@@ -16,16 +16,14 @@ func TestEventLogAppendReadDurable(t *testing.T) {
 	if err != nil {
 		t.Fatalf("open: %v", err)
 	}
-	scope := aurora.LogScope{TenantID: "t", SessionID: "ses1"}
-
-	head, err := store.Append(ctx, scope,
+	head, err := store.Append(ctx, "ses1",
 		aurora.LogEvent{Kind: "process.state", Proc: "proc1", Rev: 1, Time: time.Unix(0, 0)},
 		aurora.LogEvent{Kind: "process.state", Proc: "proc1", Rev: 1, Time: time.Unix(1, 0)},
 	)
 	if err != nil || head != 2 {
 		t.Fatalf("append head=%d err=%v", head, err)
 	}
-	if _, err := store.Append(ctx, aurora.LogScope{TenantID: "t", SessionID: "ses2"}, aurora.LogEvent{Kind: "process.state"}); err != nil {
+	if _, err := store.Append(ctx, "ses2", aurora.LogEvent{Kind: "process.state"}); err != nil {
 		t.Fatal(err)
 	}
 	if err := store.Close(); err != nil {
@@ -39,22 +37,22 @@ func TestEventLogAppendReadDurable(t *testing.T) {
 	}
 	defer reopened.Close()
 
-	events, err := reopened.Read(ctx, scope, 0)
+	events, err := reopened.Read(ctx, "ses1", 0)
 	if err != nil {
 		t.Fatal(err)
 	}
 	if len(events) != 2 || events[0].Seq != 1 || events[1].Seq != 2 || events[1].Proc != "proc1" {
 		t.Fatalf("read = %+v", events)
 	}
-	if tail, _ := reopened.Read(ctx, scope, 1); len(tail) != 1 || tail[0].Seq != 2 {
+	if tail, _ := reopened.Read(ctx, "ses1", 1); len(tail) != 1 || tail[0].Seq != 2 {
 		t.Fatalf("read after 1 = %+v", tail)
 	}
-	streams, err := reopened.Streams(ctx, "t")
+	sessions, err := reopened.Sessions(ctx)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(streams) != 2 || streams[0].SessionID != "ses1" || streams[1].SessionID != "ses2" {
-		t.Fatalf("streams = %+v", streams)
+	if len(sessions) != 2 || sessions[0] != "ses1" || sessions[1] != "ses2" {
+		t.Fatalf("sessions = %+v", sessions)
 	}
 }
 

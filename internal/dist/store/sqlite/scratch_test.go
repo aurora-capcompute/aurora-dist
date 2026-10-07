@@ -27,7 +27,7 @@ func TestScratchSurvivesReopen(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "aurora.db")
 
 	store := openScratch(t, path)
-	if _, err := store.ScratchSpace("t", "ses1").Put(ctx, "notes/a", json.RawMessage(`"kept"`), []string{"untrusted_web"}, drivermem.PutAbsent); err != nil {
+	if _, err := store.ScratchSpace("ses1").Put(ctx, "notes/a", json.RawMessage(`"kept"`), []string{"untrusted_web"}, drivermem.PutAbsent); err != nil {
 		t.Fatalf("put: %v", err)
 	}
 	if err := store.Close(); err != nil {
@@ -36,29 +36,27 @@ func TestScratchSurvivesReopen(t *testing.T) {
 
 	reopened := openScratch(t, path)
 	defer reopened.Close()
-	value, labels, version, ok, err := reopened.ScratchSpace("t", "ses1").Get(ctx, "notes/a")
+	value, labels, version, ok, err := reopened.ScratchSpace("ses1").Get(ctx, "notes/a")
 	if err != nil || !ok || string(value) != `"kept"` || version != 1 || !slices.Equal(labels, []string{"untrusted_web"}) {
 		t.Fatalf("after reopen: value=%s labels=%v version=%d ok=%v err=%v", value, labels, version, ok, err)
 	}
 }
 
-// One session cannot see another's keys, in either tenant or session.
+// One session cannot see another's keys.
 func TestScratchSessionsAreIsolated(t *testing.T) {
 	ctx := context.Background()
 	store := openScratch(t, filepath.Join(t.TempDir(), "aurora.db"))
 	defer store.Close()
 
-	if _, err := store.ScratchSpace("t", "ses1").Put(ctx, "secret", json.RawMessage(`1`), nil, drivermem.PutAny); err != nil {
+	if _, err := store.ScratchSpace("ses1").Put(ctx, "secret", json.RawMessage(`1`), nil, drivermem.PutAny); err != nil {
 		t.Fatalf("put: %v", err)
 	}
-	for _, other := range [][2]string{{"t", "ses2"}, {"rival", "ses1"}} {
-		space := store.ScratchSpace(other[0], other[1])
-		if _, _, _, ok, _ := space.Get(ctx, "secret"); ok {
-			t.Fatalf("%v read ses1's key", other)
-		}
-		if keys, _ := space.List(ctx, ""); len(keys) != 0 {
-			t.Fatalf("%v listed %v", other, keys)
-		}
+	other := store.ScratchSpace("ses2")
+	if _, _, _, ok, _ := other.Get(ctx, "secret"); ok {
+		t.Fatal("ses2 read ses1's key")
+	}
+	if keys, _ := other.List(ctx, ""); len(keys) != 0 {
+		t.Fatalf("ses2 listed %v", keys)
 	}
 }
 
@@ -68,7 +66,7 @@ func TestScratchStoreContract(t *testing.T) {
 	ctx := context.Background()
 	store := openScratch(t, filepath.Join(t.TempDir(), "aurora.db"))
 	defer store.Close()
-	space := store.ScratchSpace("t", "ses1")
+	space := store.ScratchSpace("ses1")
 
 	if v, err := space.Put(ctx, "notes/a", json.RawMessage(`"one"`), nil, drivermem.PutAbsent); err != nil || v != 1 {
 		t.Fatalf("create = %d, %v", v, err)

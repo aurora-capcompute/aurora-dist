@@ -33,9 +33,6 @@ import (
 
 // Config wires one distribution instance.
 type Config struct {
-	// TenantID scopes every session this instance serves (single-tenant
-	// posture; empty uses the runtime default).
-	TenantID string
 	// DataDir holds the SQLite database (<DataDir>/aurora.db). Empty runs on
 	// in-memory stores — nothing survives a restart.
 	DataDir string
@@ -75,7 +72,6 @@ type Dist struct {
 	loopCancel context.CancelFunc
 	closers    []io.Closer
 	logger     *slog.Logger
-	tenant     string
 }
 
 // New assembles and starts a distribution: stores, driver registry, runtime
@@ -103,10 +99,6 @@ func New(ctx context.Context, cfg Config) (*Dist, error) {
 		closers = append(closers, store)
 	}
 
-	tenant := strings.TrimSpace(cfg.TenantID)
-	if tenant == "" {
-		tenant = aurora.DefaultTenantID
-	}
 	provider := newProvider([]registry.Registration{
 		internet.Registration{},
 		scratch.Registration{},
@@ -123,7 +115,6 @@ func New(ctx context.Context, cfg Config) (*Dist, error) {
 	runtime, err := aurora.NewRuntime(ctx, aurora.Config{
 		Dispatchers:            provider,
 		Log:                    log,
-		TenantID:               tenant,
 		TaskSecret:             cfg.TaskSecret,
 		MaxConcurrentProcesses: cfg.MaxConcurrentProcesses,
 	})
@@ -153,7 +144,6 @@ func New(ctx context.Context, cfg Config) (*Dist, error) {
 		loopCancel: loopCancel,
 		closers:    closers,
 		logger:     logger,
-		tenant:     tenant,
 	}
 	// The programs directory is re-scanned into the runtime on a ticker so
 	// in-memory programs track the filesystem.

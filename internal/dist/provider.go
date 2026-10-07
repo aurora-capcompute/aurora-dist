@@ -28,7 +28,7 @@ type provider struct {
 // scratchSpaces hands out one session's durable core.scratch store. The store
 // is bound to the session, so the driver built over it cannot reach another.
 type scratchSpaces interface {
-	ScratchSpace(tenant, session string) drivermem.Store
+	ScratchSpace(session string) drivermem.Store
 }
 
 func newProvider(registrations []registry.Registration, services registry.Services, scratch scratchSpaces) *provider {
@@ -58,6 +58,6 @@ func (p *provider) NewDispatcher(
 	// The scratch space is the one per-process service: the credential, never
 	// the manifest, names the session whose store the build gets.
 	services := p.services
-	services.Scratch = p.scratch.ScratchSpace(cred.TenantID, cred.SessionID)
+	services.Scratch = p.scratch.ScratchSpace(cred.SessionID)
 	return p.registry.Build(ctx, entries, services)
 }

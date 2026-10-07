@@ -39,9 +39,9 @@ func TestScratchSpaceFollowsTheCredentialsSession(t *testing.T) {
 		return result
 	}
 
-	writer := aurora.ProcessContext{TenantID: "t", SessionID: "ses1", ProcessID: "proc_a"}
-	sibling := aurora.ProcessContext{TenantID: "t", SessionID: "ses1", ProcessID: "proc_b"}
-	stranger := aurora.ProcessContext{TenantID: "t", SessionID: "ses2", ProcessID: "proc_c"}
+	writer := aurora.ProcessContext{SessionID: "ses1", ProcessID: "proc_a"}
+	sibling := aurora.ProcessContext{SessionID: "ses1", ProcessID: "proc_b"}
+	stranger := aurora.ProcessContext{SessionID: "ses2", ProcessID: "proc_c"}
 
 	call(writer, `{"operation":"put","key":"handoff","value":"for the next run"}`)
 	if got := call(sibling, `{"operation":"get","key":"handoff"}`); !strings.Contains(string(got.Result()), "for the next run") {
