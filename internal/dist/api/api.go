@@ -31,10 +31,9 @@ func Handler(d *dist.Dist) http.Handler {
 	mux := http.NewServeMux()
 
 	// Sessions. GET returns the complete session log — session metadata,
-	// history, and every process with its full state,
-	// journal across all revisions, and tasks. Every narrower view (the
-	// current journal, one revision, the call graph, a task list) is a
-	// client-side grouping of that one payload.
+	// history, and every process with its full state, journal across all
+	// revisions, and tasks. Every narrower view (the current journal, one
+	// revision, a task list) is a client-side grouping of that one payload.
 	mux.HandleFunc("GET /v1/sessions", h.listSessions)
 	mux.HandleFunc("POST /v1/sessions", h.createSession)
 	mux.HandleFunc("GET /v1/sessions/{id}", h.getSession)
@@ -139,15 +138,10 @@ func (h *handler) createSession(w http.ResponseWriter, r *http.Request) {
 	if r.ContentLength != 0 && !readJSON(w, r, &req) {
 		return
 	}
-	snapshot, err := h.dist.CreateSession(req.Name, req.Tags)
-	if err != nil {
-		writeError(w, err)
-		return
-	}
-	// Return the created session in the same shape a GET would, so a client
-	// has one session representation to decode.
-	log, err := h.dist.SessionLog(snapshot.ID)
-	writeJSON(w, log, err)
+	// The created session comes back in the same shape a GET returns, so a
+	// client has one session representation to decode.
+	session, err := h.dist.Runtime.CreateSession(req.Name, req.Tags)
+	writeJSON(w, session, err)
 }
 
 type renameSessionRequest struct {
@@ -159,18 +153,14 @@ func (h *handler) renameSession(w http.ResponseWriter, r *http.Request) {
 	if !readJSON(w, r, &req) {
 		return
 	}
-	if _, err := h.dist.RenameSession(r.PathValue("id"), req.Name); err != nil {
-		writeError(w, err)
-		return
-	}
-	log, err := h.dist.SessionLog(r.PathValue("id"))
-	writeJSON(w, log, err)
+	session, err := h.dist.Runtime.RenameSession(r.PathValue("id"), req.Name)
+	writeJSON(w, session, err)
 }
 
-// getSession returns the complete session log: the one comprehensive read.
+// getSession returns the complete session: the one comprehensive read.
 func (h *handler) getSession(w http.ResponseWriter, r *http.Request) {
-	log, err := h.dist.SessionLog(r.PathValue("id"))
-	writeJSON(w, log, err)
+	session, err := h.dist.Runtime.GetSession(r.PathValue("id"))
+	writeJSON(w, session, err)
 }
 
 // --- processes ---

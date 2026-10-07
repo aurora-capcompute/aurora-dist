@@ -13,7 +13,6 @@ import (
 type fakeResumeRuntime struct {
 	aurora.Runtime
 	sessions map[string]aurora.SessionSnapshot
-	graphs   map[string]aurora.SessionGraph
 	retried  []string
 }
 
@@ -31,29 +30,27 @@ func (f *fakeResumeRuntime) GetSession(id string) (aurora.SessionSnapshot, error
 	return f.sessions[id], nil
 }
 
-func (f *fakeResumeRuntime) SessionGraph(id string) (aurora.SessionGraph, error) {
-	return f.graphs[id], nil
-}
-
 func (f *fakeResumeRuntime) Retry(id string, _ aurora.RetryMode) (aurora.ProcessSnapshot, error) {
 	f.retried = append(f.retried, id)
 	return aurora.ProcessSnapshot{}, nil
 }
 
-func TestResumeInterruptedRetriesTopmostOnly(t *testing.T) {
+func TestResumeInterruptedRetriesOnlyInterrupted(t *testing.T) {
+	process := func(id string, status aurora.ProcessStatus) aurora.ProcessLog {
+		return aurora.ProcessLog{ProcessSnapshot: aurora.ProcessSnapshot{ID: id, Status: status}}
+	}
 	rt := &fakeResumeRuntime{
 		sessions: map[string]aurora.SessionSnapshot{
-			// A root interrupted with an interrupted child mid-flight, plus a
-			// parked sibling that must not be touched.
-			"ses_1": {SessionSummary: aurora.SessionSummary{ID: "ses_1"}, Processes: []aurora.ProcessSnapshot{
-				{ID: "root", Status: aurora.ProcessInterrupted},
-				{ID: "parked", Status: aurora.ProcessWaitingTask},
+			// An interrupted process, plus a parked one that must not be touched.
+			"ses_1": {SessionSummary: aurora.SessionSummary{ID: "ses_1"}, Processes: []aurora.ProcessLog{
+				process("root", aurora.ProcessInterrupted),
+				process("parked", aurora.ProcessWaitingTask),
 			}},
 			// A completed or parked process never needs the kick.
-			"ses_2": {SessionSummary: aurora.SessionSummary{ID: "ses_2"}, Processes: []aurora.ProcessSnapshot{
-				{ID: "yielded", Status: aurora.ProcessYielded},
-				{ID: "orphan", Status: aurora.ProcessInterrupted},
-				{ID: "done", Status: aurora.ProcessCompleted},
+			"ses_2": {SessionSummary: aurora.SessionSummary{ID: "ses_2"}, Processes: []aurora.ProcessLog{
+				process("yielded", aurora.ProcessYielded),
+				process("orphan", aurora.ProcessInterrupted),
+				process("done", aurora.ProcessCompleted),
 			}},
 		},
 	}

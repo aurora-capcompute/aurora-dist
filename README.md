@@ -210,9 +210,10 @@ refused when the manifest is validated.
 | `GET /healthz` | returns `ok` |
 
 `GET /v1/sessions/{id}` returns everything about a session — metadata, history, and
-every process with its full state, journal across all revisions, and tasks. The call graph, a single revision, a task list — every narrower view is a
-client‑side grouping of that one payload. There is no separate `/graph`,
-`/journal`, or `/tasks` endpoint by design.
+every process with its full state, journal across all revisions, and tasks. A
+single revision, a task list — every narrower view is a client‑side grouping of
+that one payload. There is no separate `/journal` or `/tasks` endpoint by
+design.
 
 ## Project layout
 
@@ -222,7 +223,6 @@ internal/dist/
   dist.go                   assembles stores + drivers + runtime + background loops
   ceiling.go                the capability-ceiling gate at process creation
   secrets.go                AURORA_SECRET_* name → value resolution
-  log.go                    the one comprehensive session read (the fold)
   api/                      the /v1 HTTP handlers
   programs/                 loads *.wasm + *.json pairs, hot-reload
   store/memory/             in-memory event log and scratch spaces

@@ -221,12 +221,12 @@ func TestDistributionEndToEnd(t *testing.T) {
 	}
 
 	// Create a session, start a process.
-	var session dist.SessionLog
+	var session aurora.SessionSnapshot
 	c.do(http.MethodPost, "/v1/sessions", map[string]any{"tags": map[string]string{"origin": "e2e"}}, &session)
-	if !strings.HasPrefix(session.Session.ID, "ses_") {
-		t.Fatalf("session id = %q", session.Session.ID)
+	if !strings.HasPrefix(session.ID, "ses_") {
+		t.Fatalf("session id = %q", session.ID)
 	}
-	sessionID := session.Session.ID
+	sessionID := session.ID
 	var process aurora.ProcessSnapshot
 	c.do(http.MethodPost, "/v1/sessions/"+sessionID+"/processes", map[string]any{
 		"input":    "take a nap, then report back",
@@ -261,7 +261,7 @@ func TestDistributionEndToEnd(t *testing.T) {
 	// endpoints. The journal narrates the whole story: input → chat → timer →
 	// chat → finish.
 	c.do(http.MethodGet, "/v1/sessions/"+sessionID, nil, &session)
-	if len(session.Processes) != 1 || session.Session.ActiveProcessID != "" || len(session.History) != 2 {
+	if len(session.Processes) != 1 || session.ActiveProcessID != "" || len(session.History) != 2 {
 		t.Fatalf("session = %+v", session)
 	}
 	logged := session.Processes[0]
@@ -329,9 +329,9 @@ func TestDistributionRestartRecoversTimers(t *testing.T) {
 	server := httptest.NewServer(api.Handler(first))
 	c := &client{t: t, base: server.URL, http: server.Client()}
 
-	var session dist.SessionLog
+	var session aurora.SessionSnapshot
 	c.do(http.MethodPost, "/v1/sessions", nil, &session)
-	sessionID := session.Session.ID
+	sessionID := session.ID
 	var process aurora.ProcessSnapshot
 	c.do(http.MethodPost, "/v1/sessions/"+sessionID+"/processes", map[string]any{
 		"input":    "take a nap, then report back",
@@ -441,10 +441,10 @@ func TestDistributionResumesInterruptedProcess(t *testing.T) {
 	server := httptest.NewServer(api.Handler(first))
 	c := &client{t: t, base: server.URL, http: server.Client()}
 
-	var session dist.SessionLog
+	var session aurora.SessionSnapshot
 	c.do(http.MethodPost, "/v1/sessions", nil, &session)
 	var process aurora.ProcessSnapshot
-	c.do(http.MethodPost, "/v1/sessions/"+session.Session.ID+"/processes", map[string]any{
+	c.do(http.MethodPost, "/v1/sessions/"+session.ID+"/processes", map[string]any{
 		"input":    "do the thing",
 		"manifest": testManifest(llm.URL + "/v1"),
 	}, &process)
@@ -517,7 +517,7 @@ func TestCapabilityCeilingOverHTTP(t *testing.T) {
 	server := httptest.NewServer(api.Handler(d))
 	defer server.Close()
 
-	var session dist.SessionLog
+	var session aurora.SessionSnapshot
 	c := &client{t: t, base: server.URL, http: server.Client()}
 	c.do(http.MethodPost, "/v1/sessions", nil, &session)
 
@@ -527,7 +527,7 @@ func TestCapabilityCeilingOverHTTP(t *testing.T) {
 			{Syscall: "core.internet", Config: json.RawMessage(`{"capabilities":[{"methods":["GET"],"domain":"example.com"}]}`)},
 		}},
 	})
-	resp, err := http.Post(server.URL+"/v1/sessions/"+session.Session.ID+"/processes", "application/json", bytes.NewReader(body))
+	resp, err := http.Post(server.URL+"/v1/sessions/"+session.ID+"/processes", "application/json", bytes.NewReader(body))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -606,10 +606,10 @@ func TestAgentLoopIsCapped(t *testing.T) {
 		},
 	}
 
-	var session dist.SessionLog
+	var session aurora.SessionSnapshot
 	c.do(http.MethodPost, "/v1/sessions", map[string]any{}, &session)
 	var process aurora.ProcessSnapshot
-	c.do(http.MethodPost, "/v1/sessions/"+session.Session.ID+"/processes", map[string]any{
+	c.do(http.MethodPost, "/v1/sessions/"+session.ID+"/processes", map[string]any{
 		"input":    "keep going forever",
 		"manifest": manifest,
 	}, &process)
@@ -695,10 +695,10 @@ func TestAgentSalvagesProseReply(t *testing.T) {
 		},
 	}
 
-	var session dist.SessionLog
+	var session aurora.SessionSnapshot
 	c.do(http.MethodPost, "/v1/sessions", map[string]any{}, &session)
 	var process aurora.ProcessSnapshot
-	c.do(http.MethodPost, "/v1/sessions/"+session.Session.ID+"/processes", map[string]any{
+	c.do(http.MethodPost, "/v1/sessions/"+session.ID+"/processes", map[string]any{
 		"input":    "is warp a good terminal emulator?",
 		"manifest": manifest,
 	}, &process)
@@ -825,10 +825,10 @@ func TestAgentOffloadsLargeInternetRead(t *testing.T) {
 		},
 	}
 
-	var session dist.SessionLog
+	var session aurora.SessionSnapshot
 	c.do(http.MethodPost, "/v1/sessions", map[string]any{}, &session)
 	var process aurora.ProcessSnapshot
-	c.do(http.MethodPost, "/v1/sessions/"+session.Session.ID+"/processes", map[string]any{
+	c.do(http.MethodPost, "/v1/sessions/"+session.ID+"/processes", map[string]any{
 		"input":    "research the page",
 		"manifest": manifest,
 	}, &process)
@@ -965,10 +965,10 @@ func TestScratchSurvivesAQuantumBoundary(t *testing.T) {
 		},
 	}
 
-	var session dist.SessionLog
+	var session aurora.SessionSnapshot
 	c.do(http.MethodPost, "/v1/sessions", map[string]any{}, &session)
 	var process aurora.ProcessSnapshot
-	c.do(http.MethodPost, "/v1/sessions/"+session.Session.ID+"/processes", map[string]any{
+	c.do(http.MethodPost, "/v1/sessions/"+session.ID+"/processes", map[string]any{
 		"input":    "research the page",
 		"manifest": manifest,
 	}, &process)
@@ -1070,12 +1070,12 @@ func TestScratchHandsOffBetweenProcessesWithoutHistory(t *testing.T) {
 		},
 	}
 
-	var session dist.SessionLog
+	var session aurora.SessionSnapshot
 	c.do(http.MethodPost, "/v1/sessions", map[string]any{}, &session)
 	run := func(input string) {
 		t.Helper()
 		var process aurora.ProcessSnapshot
-		c.do(http.MethodPost, "/v1/sessions/"+session.Session.ID+"/processes", map[string]any{
+		c.do(http.MethodPost, "/v1/sessions/"+session.ID+"/processes", map[string]any{
 			"input":    input,
 			"manifest": manifest,
 		}, &process)
@@ -1165,10 +1165,10 @@ func TestAgentSheddingRecoversOversizedRequest(t *testing.T) {
 		},
 	}
 
-	var session dist.SessionLog
+	var session aurora.SessionSnapshot
 	c.do(http.MethodPost, "/v1/sessions", map[string]any{}, &session)
 	var process aurora.ProcessSnapshot
-	c.do(http.MethodPost, "/v1/sessions/"+session.Session.ID+"/processes", map[string]any{
+	c.do(http.MethodPost, "/v1/sessions/"+session.ID+"/processes", map[string]any{
 		"input":    strings.Repeat("flood ", 6000), // ~36 KB, dwarfing the 8 KB cap
 		"manifest": manifest,
 	}, &process)
