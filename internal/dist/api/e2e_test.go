@@ -107,10 +107,17 @@ func scriptedLLM(t *testing.T) *httptest.Server {
 	}))
 }
 
+// e2eSecrets holds the stub LLM's key: manifests name it, the host resolves it.
+var e2eSecrets = secretMap{"OPENAI_KEY": "test-key"}
+
+type secretMap map[string]string
+
+func (m secretMap) Resolve(name string) (string, bool) { v, ok := m[name]; return v, ok }
+
 func testManifest(llmBaseURL string) aurora.Manifest {
 	config, _ := json.Marshal(map[string]any{
 		"base_url":            llmBaseURL,
-		"api_key":             "test-key",
+		"api_key":             map[string]string{"secret": "OPENAI_KEY"},
 		"allow_insecure_http": true,
 		"default_model":       "stub-model",
 		"capabilities": []map[string]any{
@@ -175,6 +182,7 @@ func TestDistributionEndToEnd(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 	d, err := dist.New(ctx, dist.Config{
+		Secrets:     e2eSecrets,
 		DataDir:     "", // in-memory
 		ProgramsDir: programsDir,
 		TaskSecret:  []byte("e2e-secret"),
@@ -308,6 +316,7 @@ func TestDistributionRestartRecoversTimers(t *testing.T) {
 	defer llm.Close()
 
 	config := dist.Config{
+		Secrets:     e2eSecrets,
 		DataDir:     dataDir,
 		ProgramsDir: programsDir,
 		TaskSecret:  []byte("e2e-secret"),
@@ -419,6 +428,7 @@ func TestDistributionResumesInterruptedProcess(t *testing.T) {
 	defer llm.Close()
 
 	config := dist.Config{
+		Secrets:     e2eSecrets,
 		DataDir:     dataDir,
 		ProgramsDir: programsDir,
 		TaskSecret:  []byte("e2e-secret"),
@@ -496,6 +506,7 @@ func TestDistributionResumesInterruptedProcess(t *testing.T) {
 func TestCapabilityCeilingOverHTTP(t *testing.T) {
 	ctx := context.Background()
 	d, err := dist.New(ctx, dist.Config{
+		Secrets:           e2eSecrets,
 		TaskSecret:        []byte("e2e-secret"),
 		CapabilityCeiling: []string{"sys.timer"},
 		Logger:            slog.New(slog.NewTextHandler(io.Discard, nil)),
@@ -559,6 +570,7 @@ func TestAgentLoopIsCapped(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 	d, err := dist.New(ctx, dist.Config{
+		Secrets:     e2eSecrets,
 		ProgramsDir: programsDir,
 		TaskSecret:  []byte("e2e-secret"),
 		Logger:      slog.New(slog.NewTextHandler(io.Discard, nil)),
@@ -578,7 +590,7 @@ func TestAgentLoopIsCapped(t *testing.T) {
 
 	llmConfig, _ := json.Marshal(map[string]any{
 		"base_url":            llm.URL + "/v1",
-		"api_key":             "test-key",
+		"api_key":             map[string]string{"secret": "OPENAI_KEY"},
 		"allow_insecure_http": true,
 		"default_model":       "stub-model",
 		"capabilities":        []map[string]any{{"operation": "chat", "require_approval": false}},
@@ -651,6 +663,7 @@ func TestAgentSalvagesProseReply(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 	d, err := dist.New(ctx, dist.Config{
+		Secrets:     e2eSecrets,
 		ProgramsDir: programsDir,
 		TaskSecret:  []byte("e2e-secret"),
 		Logger:      slog.New(slog.NewTextHandler(io.Discard, nil)),
@@ -670,7 +683,7 @@ func TestAgentSalvagesProseReply(t *testing.T) {
 
 	llmConfig, _ := json.Marshal(map[string]any{
 		"base_url":            llm.URL + "/v1",
-		"api_key":             "test-key",
+		"api_key":             map[string]string{"secret": "OPENAI_KEY"},
 		"allow_insecure_http": true,
 		"default_model":       "stub-model",
 		"capabilities":        []map[string]any{{"operation": "chat", "require_approval": false}},
@@ -767,6 +780,7 @@ func TestAgentOffloadsLargeInternetRead(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 	d, err := dist.New(ctx, dist.Config{
+		Secrets:     e2eSecrets,
 		ProgramsDir: programsDir,
 		TaskSecret:  []byte("e2e-secret"),
 		Logger:      slog.New(slog.NewTextHandler(io.Discard, nil)),
@@ -786,7 +800,7 @@ func TestAgentOffloadsLargeInternetRead(t *testing.T) {
 
 	llmConfig, _ := json.Marshal(map[string]any{
 		"base_url":            llm.URL + "/v1",
-		"api_key":             "test-key",
+		"api_key":             map[string]string{"secret": "OPENAI_KEY"},
 		"allow_insecure_http": true,
 		"default_model":       "stub-model",
 		"capabilities":        []map[string]any{{"operation": "chat", "require_approval": false}},
@@ -907,6 +921,7 @@ func TestScratchSurvivesAQuantumBoundary(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 	d, err := dist.New(ctx, dist.Config{
+		Secrets:     e2eSecrets,
 		ProgramsDir: programsDir,
 		TaskSecret:  []byte("e2e-secret"),
 		Logger:      slog.New(slog.NewTextHandler(io.Discard, nil)),
@@ -926,7 +941,7 @@ func TestScratchSurvivesAQuantumBoundary(t *testing.T) {
 
 	llmConfig, _ := json.Marshal(map[string]any{
 		"base_url":            llm.URL + "/v1",
-		"api_key":             "test-key",
+		"api_key":             map[string]string{"secret": "OPENAI_KEY"},
 		"allow_insecure_http": true,
 		"default_model":       "stub-model",
 		"capabilities":        []map[string]any{{"operation": "chat", "require_approval": false}},
@@ -1016,6 +1031,7 @@ func TestScratchHandsOffBetweenProcessesWithoutHistory(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 	d, err := dist.New(ctx, dist.Config{
+		Secrets:     e2eSecrets,
 		DataDir:     t.TempDir(), // SQLite: the session's scratch is durable
 		ProgramsDir: programsDir,
 		TaskSecret:  []byte("e2e-secret"),
@@ -1036,7 +1052,7 @@ func TestScratchHandsOffBetweenProcessesWithoutHistory(t *testing.T) {
 
 	llmConfig, _ := json.Marshal(map[string]any{
 		"base_url":            llm.URL + "/v1",
-		"api_key":             "test-key",
+		"api_key":             map[string]string{"secret": "OPENAI_KEY"},
 		"allow_insecure_http": true,
 		"default_model":       "stub-model",
 		"capabilities":        []map[string]any{{"operation": "chat", "require_approval": false}},
@@ -1114,6 +1130,7 @@ func TestAgentSheddingRecoversOversizedRequest(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 	d, err := dist.New(ctx, dist.Config{
+		Secrets:     e2eSecrets,
 		ProgramsDir: programsDir,
 		TaskSecret:  []byte("e2e-secret"),
 		Logger:      slog.New(slog.NewTextHandler(io.Discard, nil)),
@@ -1135,7 +1152,7 @@ func TestAgentSheddingRecoversOversizedRequest(t *testing.T) {
 	// input) far exceeds it, so the guest must shed to get under it.
 	llmConfig, _ := json.Marshal(map[string]any{
 		"base_url":            llm.URL + "/v1",
-		"api_key":             "test-key",
+		"api_key":             map[string]string{"secret": "OPENAI_KEY"},
 		"allow_insecure_http": true,
 		"default_model":       "stub-model",
 		"max_request_bytes":   8000,
