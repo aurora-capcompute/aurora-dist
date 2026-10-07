@@ -19,6 +19,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"regexp"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -797,7 +798,7 @@ func TestAgentOffloadsLargeInternetRead(t *testing.T) {
 		// service would.
 		"allow_private_network": true,
 	})
-	// Offload lands in core.scratch — process-local and ephemeral.
+	// Offload lands in core.scratch, the session's store.
 	scratchConfig, _ := json.Marshal(map[string]any{
 		"capabilities": []map[string]any{{"operation": "put"}, {"operation": "get"}, {"operation": "search"}},
 	})
@@ -839,6 +840,250 @@ func TestAgentOffloadsLargeInternetRead(t *testing.T) {
 	}
 	if leaked.Load() {
 		t.Fatal("the full response body reached the model — it was inlined, not offloaded")
+	}
+}
+
+// A value put in scratch must still be there after the process parks and
+// resumes. The offloaded page is stored in one quantum, a timer ends that
+// quantum, and the search for its tail runs in the next one — where replay
+// serves the put from the journal instead of re-running it.
+func TestScratchSurvivesAQuantumBoundary(t *testing.T) {
+	wasm := buildProgram(t)
+	programsDir := t.TempDir()
+	writeProgramDir(t, programsDir, wasm)
+
+	const deepMarker = "DEEP_BODY_SENTINEL_found_by_search"
+	// The marker gets its own line: search returns matching lines capped in
+	// length, so a marker at the end of one huge line would be cut off.
+	bigBody := strings.Repeat("lorem ipsum dolor sit amet consectetur adipiscing elit.\n", 2000) + deepMarker + "\n"
+
+	internet := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Content-Type", "text/plain")
+		_, _ = io.WriteString(w, bigBody)
+	}))
+	defer internet.Close()
+
+	storedKey := regexp.MustCompile(`fetch/[0-9A-Za-z]+`)
+	var turn atomic.Int32
+	var searchFound atomic.Bool
+	llm := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if !strings.HasSuffix(r.URL.Path, "/chat/completions") {
+			http.NotFound(w, r)
+			return
+		}
+		body, _ := io.ReadAll(r.Body)
+		var reply string
+		if bytes.Contains(body, []byte("compress a web page")) {
+			reply = "The page is placeholder lorem-ipsum text."
+		} else {
+			switch turn.Add(1) {
+			case 1:
+				reply = fmt.Sprintf(`{"actions":[{"action":"core.internet","content":{"method":"GET","url":%q}}]}`, internet.URL+"/page")
+			case 2:
+				// The page is offloaded; park on a timer so the search runs in a
+				// later quantum.
+				reply = `{"actions":[{"action":"sys.timer","content":{"duration_seconds":1,"label":"nap"}}]}`
+			case 3:
+				key := storedKey.Find(body)
+				if key == nil {
+					t.Errorf("no stored key in the transcript")
+				}
+				// The pattern matches the marker without spelling it, so the marker
+				// can reach the next turn only through a search hit.
+				reply = fmt.Sprintf(`{"actions":[{"action":"core.scratch","content":{"operation":"search","key":%q,"pattern":"SENTINEL_[a-z_]+"}}]}`, key)
+			default:
+				searchFound.Store(bytes.Contains(body, []byte(deepMarker)))
+				reply = `{"actions":[{"action":"final","content":{"answer":"done"}}]}`
+			}
+		}
+		payload, _ := json.Marshal(map[string]any{
+			"choices": []any{map[string]any{"message": map[string]any{"content": reply}}},
+		})
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write(payload)
+	}))
+	defer llm.Close()
+
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	d, err := dist.New(ctx, dist.Config{
+		ProgramsDir: programsDir,
+		TaskSecret:  []byte("e2e-secret"),
+		Logger:      slog.New(slog.NewTextHandler(io.Discard, nil)),
+	})
+	if err != nil {
+		t.Fatalf("assemble distribution: %v", err)
+	}
+	defer func() {
+		closeCtx, closeCancel := context.WithTimeout(context.Background(), 15*time.Second)
+		defer closeCancel()
+		_ = d.Close(closeCtx)
+	}()
+
+	server := httptest.NewServer(api.Handler(d))
+	defer server.Close()
+	c := &client{t: t, base: server.URL, http: server.Client()}
+
+	llmConfig, _ := json.Marshal(map[string]any{
+		"base_url":            llm.URL + "/v1",
+		"api_key":             "test-key",
+		"allow_insecure_http": true,
+		"default_model":       "stub-model",
+		"capabilities":        []map[string]any{{"operation": "chat", "require_approval": false}},
+	})
+	internetConfig, _ := json.Marshal(map[string]any{
+		"capabilities":          []map[string]any{{"methods": []string{"GET"}, "domain": internet.URL}},
+		"allow_private_network": true,
+		// The whole page, marker included, must reach scratch.
+		"max_response_bytes": 1 << 20,
+	})
+	scratchConfig, _ := json.Marshal(map[string]any{
+		"capabilities": []map[string]any{{"operation": "put"}, {"operation": "search"}},
+	})
+	manifest := aurora.Manifest{
+		Version: aurora.ManifestVersion,
+		Program: "agent",
+		Syscalls: []aurora.Syscall{
+			{Syscall: "core.openaiApi", Config: llmConfig, Hidden: true},
+			{Syscall: "core.internet", Config: internetConfig},
+			{Syscall: "core.scratch", Config: scratchConfig},
+			{Syscall: "sys.timer"},
+		},
+	}
+
+	var session dist.SessionLog
+	c.do(http.MethodPost, "/v1/sessions", map[string]any{}, &session)
+	var process aurora.ProcessSnapshot
+	c.do(http.MethodPost, "/v1/sessions/"+session.Session.ID+"/processes", map[string]any{
+		"input":    "research the page",
+		"manifest": manifest,
+	}, &process)
+
+	deadline := time.Now().Add(60 * time.Second)
+	for process.Status != aurora.ProcessCompleted {
+		if process.Status == aurora.ProcessFailed || process.Status == aurora.ProcessStopped {
+			t.Fatalf("process finished as %s: %s", process.Status, process.Error)
+		}
+		if time.Now().After(deadline) {
+			t.Fatalf("timed out in %s", process.Status)
+		}
+		time.Sleep(50 * time.Millisecond)
+		c.do(http.MethodGet, "/v1/processes/"+process.ID, nil, &process)
+	}
+	if !searchFound.Load() {
+		t.Fatal("the search after the timer did not find the stored page's tail: scratch lost its contents across the quantum boundary")
+	}
+}
+
+// Scratch is the session's: a process that sees no session history still reads
+// what an earlier process of the session stored. Both processes run with
+// history:false, so the value can reach the second one only through scratch.
+func TestScratchHandsOffBetweenProcessesWithoutHistory(t *testing.T) {
+	wasm := buildProgram(t)
+	programsDir := t.TempDir()
+	writeProgramDir(t, programsDir, wasm)
+
+	const secret = "TEAL-42-handoff"
+	var leakedThroughHistory, readBack atomic.Bool
+	llm := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if !strings.HasSuffix(r.URL.Path, "/chat/completions") {
+			http.NotFound(w, r)
+			return
+		}
+		body, _ := io.ReadAll(r.Body)
+		observed := bytes.Contains(body, []byte(`\"status\":\"result\"`))
+		var reply string
+		switch {
+		case bytes.Contains(body, []byte("store the code")) && !observed:
+			reply = fmt.Sprintf(`{"actions":[{"action":"core.scratch","content":{"operation":"put","key":"handoff/code","value":%q}}]}`, secret)
+		case bytes.Contains(body, []byte("store the code")):
+			reply = `{"actions":[{"action":"final","content":{"answer":"stored"}}]}`
+		case !observed:
+			leakedThroughHistory.Store(bytes.Contains(body, []byte(secret)))
+			reply = `{"actions":[{"action":"core.scratch","content":{"operation":"get","key":"handoff/code"}}]}`
+		default:
+			readBack.Store(bytes.Contains(body, []byte(secret)))
+			reply = `{"actions":[{"action":"final","content":{"answer":"recalled"}}]}`
+		}
+		payload, _ := json.Marshal(map[string]any{
+			"choices": []any{map[string]any{"message": map[string]any{"content": reply}}},
+		})
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write(payload)
+	}))
+	defer llm.Close()
+
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	d, err := dist.New(ctx, dist.Config{
+		DataDir:     t.TempDir(), // SQLite: the session's scratch is durable
+		ProgramsDir: programsDir,
+		TaskSecret:  []byte("e2e-secret"),
+		Logger:      slog.New(slog.NewTextHandler(io.Discard, nil)),
+	})
+	if err != nil {
+		t.Fatalf("assemble distribution: %v", err)
+	}
+	defer func() {
+		closeCtx, closeCancel := context.WithTimeout(context.Background(), 15*time.Second)
+		defer closeCancel()
+		_ = d.Close(closeCtx)
+	}()
+
+	server := httptest.NewServer(api.Handler(d))
+	defer server.Close()
+	c := &client{t: t, base: server.URL, http: server.Client()}
+
+	llmConfig, _ := json.Marshal(map[string]any{
+		"base_url":            llm.URL + "/v1",
+		"api_key":             "test-key",
+		"allow_insecure_http": true,
+		"default_model":       "stub-model",
+		"capabilities":        []map[string]any{{"operation": "chat", "require_approval": false}},
+	})
+	scratchConfig, _ := json.Marshal(map[string]any{
+		"capabilities": []map[string]any{{"operation": "put"}, {"operation": "get"}},
+	})
+	noHistory := false
+	manifest := aurora.Manifest{
+		Version: aurora.ManifestVersion,
+		Program: "agent",
+		History: &noHistory,
+		Syscalls: []aurora.Syscall{
+			{Syscall: "core.openaiApi", Config: llmConfig, Hidden: true},
+			{Syscall: "core.scratch", Config: scratchConfig},
+		},
+	}
+
+	var session dist.SessionLog
+	c.do(http.MethodPost, "/v1/sessions", map[string]any{}, &session)
+	run := func(input string) {
+		t.Helper()
+		var process aurora.ProcessSnapshot
+		c.do(http.MethodPost, "/v1/sessions/"+session.Session.ID+"/processes", map[string]any{
+			"input":    input,
+			"manifest": manifest,
+		}, &process)
+		deadline := time.Now().Add(60 * time.Second)
+		for process.Status != aurora.ProcessCompleted {
+			if process.Status == aurora.ProcessFailed || process.Status == aurora.ProcessStopped {
+				t.Fatalf("%q finished as %s: %s", input, process.Status, process.Error)
+			}
+			if time.Now().After(deadline) {
+				t.Fatalf("%q timed out in %s", input, process.Status)
+			}
+			time.Sleep(50 * time.Millisecond)
+			c.do(http.MethodGet, "/v1/processes/"+process.ID, nil, &process)
+		}
+	}
+
+	run("store the code for later")
+	run("recall the code")
+	if leakedThroughHistory.Load() {
+		t.Fatal("the second process saw the value before reading scratch: history:false did not hide it")
+	}
+	if !readBack.Load() {
+		t.Fatal("the second process did not read the value the first stored in session scratch")
 	}
 }
 

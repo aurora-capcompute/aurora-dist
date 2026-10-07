@@ -14,6 +14,7 @@ import (
 	"github.com/aurora-capcompute/aurora-capcompute/capability"
 	"github.com/aurora-capcompute/aurora-dispatchers/internet"
 	"github.com/aurora-capcompute/aurora-dispatchers/registry"
+	distmem "github.com/aurora-capcompute/aurora-dist/internal/dist/store/memory"
 	"github.com/aurora-capcompute/capcompute/sys"
 )
 
@@ -43,6 +44,7 @@ func TestProviderInjectsCredentialEndToEnd(t *testing.T) {
 			Secrets:  injectResolver{"ONYX_TOKEN": "tok-abc"},
 			AuditKey: []byte("audit-key"),
 		},
+		distmem.NewScratchSpaces(),
 	)
 	// The origin is the loopback test server (injection permits http only on
 	// loopback); the SSRF guard is opened for it with allow_private_network.
@@ -98,6 +100,7 @@ func TestProviderInjectionFailsClosedOnMissingSecret(t *testing.T) {
 	provider := newProvider(
 		[]registry.Registration{internet.Registration{}},
 		registry.Services{Secrets: injectResolver{}},
+		distmem.NewScratchSpaces(),
 	)
 	manifest := aurora.Manifest{
 		Version: aurora.ManifestVersion,

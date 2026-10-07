@@ -1,7 +1,7 @@
 // Package sqlite is the distribution's durable store: an append-only event log
-// (one ordered stream per session) and a lease table for cross-instance
-// coordination. The runtime folds the log into session/process/task
-// projections; there is no per-entity row store.
+// (one ordered stream per session), a lease table for cross-instance
+// coordination, and each session's core.scratch space. The runtime folds the
+// log into session/process/task projections; there is no per-entity row store.
 package sqlite
 
 import (
@@ -58,7 +58,7 @@ CREATE TABLE IF NOT EXISTS leases (
 	expires_at TEXT NOT NULL
 );
 `
-	_, err := s.db.ExecContext(ctx, schema)
+	_, err := s.db.ExecContext(ctx, schema+scratchSchema)
 	return err
 }
 

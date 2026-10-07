@@ -99,17 +99,19 @@ func New(ctx context.Context, cfg Config) (*Dist, error) {
 	var (
 		log     aurora.EventLog
 		leases  aurora.Leases
+		spaces  scratchSpaces
 		closers []io.Closer
 	)
 	if strings.TrimSpace(cfg.DataDir) == "" {
 		log = memory.NewEventLog()
 		leases = memory.NewLeases()
+		spaces = memory.NewScratchSpaces()
 	} else {
 		store, err := sqlite.Open(filepath.Join(cfg.DataDir, "aurora.db"))
 		if err != nil {
 			return nil, fmt.Errorf("open store: %w", err)
 		}
-		log, leases = store, store
+		log, leases, spaces = store, store, store
 		closers = append(closers, store)
 	}
 
@@ -127,7 +129,7 @@ func New(ctx context.Context, cfg Config) (*Dist, error) {
 	}, registry.Services{
 		Secrets:  cfg.Secrets,
 		AuditKey: cfg.AuditKey,
-	})
+	}, spaces)
 
 	dir := programs.Dir{Path: cfg.ProgramsDir}
 	// A restart must reclaim the leases of the processes it was running: the

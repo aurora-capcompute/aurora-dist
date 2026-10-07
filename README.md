@@ -57,7 +57,7 @@ The result is the deployable server that a client like
 | --- | --- |
 | **One binary, one API** | Versioned `/v1` HTTP API from the start — the single way in |
 | **Compiled‑in drivers** | `core.internet`, `core.scratch`, `core.filesystem`, `core.command`, `core.httpTemplate`, `core.openaiApi` (LLM), plus `sys.timer` and `sys.declassify` |
-| **Two store backends** | In‑memory (nothing survives restart) or SQLite (durable append‑only event log and leases) — chosen by whether you set `-data` |
+| **Two store backends** | In‑memory (nothing survives restart) or SQLite (durable append‑only event log, leases, and each session's `core.scratch` store) — chosen by whether you set `-data` |
 | **Durable timers** | `sys.timer` fires whether or not a client is attached; fire times are absolute and re‑armed at boot, so a restart never shifts a deadline |
 | **Program hot‑reload** | Loads `<name>.wasm` + `<name>.json` pairs from a directory and re‑scans on a ticker; edit a program and it reloads (a `.wasm` with no `.json` is refused) |
 | **Capability ceiling** | An operator allowlist of capability names; process creation refuses any manifest that grants beyond it |
@@ -225,8 +225,8 @@ internal/dist/
   api/                      the /v1 HTTP handlers
   programs/                 loads *.wasm + *.json pairs, hot-reload
   timers/                   the durable sys.timer reconcile/fire loop
-  store/memory/             in-memory event log and leases
-  store/sqlite/             durable SQLite store
+  store/memory/             in-memory event log, leases, and scratch spaces
+  store/sqlite/             durable SQLite store (event log, leases, scratch spaces)
 ```
 
 ## Verification

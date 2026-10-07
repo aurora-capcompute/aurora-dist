@@ -6,13 +6,15 @@ import (
 
 	"github.com/aurora-capcompute/aurora-capcompute/aurora"
 	"github.com/aurora-capcompute/aurora-capcompute/capability"
+	drivermem "github.com/aurora-capcompute/aurora-dispatchers/memory"
 	"github.com/aurora-capcompute/aurora-dispatchers/registry"
 )
 
 // provider adapts the dispatcher registry to the runtime's injected
 // DispatcherProvider contract. It is the whole of the distribution's driver
 // policy: the compiled-in registration set decides which tool types exist,
-// and services carry the deployment-scoped secret resolver and audit key.
+// services carry the deployment-scoped secret resolver and audit key, and the
+// scratch spaces give each build its session's core.scratch store.
 // There is no per-binding warmup here — manifests arrive
 // per-process from the single trusted client, already carrying their driver
 // config; the policy layer in front of multi-principal deployments is a
@@ -20,10 +22,17 @@ import (
 type provider struct {
 	registry *registry.Registry
 	services registry.Services
+	scratch  scratchSpaces
 }
 
-func newProvider(registrations []registry.Registration, services registry.Services) *provider {
-	return &provider{registry: registry.New(registrations...), services: services}
+// scratchSpaces hands out one session's durable core.scratch store. The store
+// is bound to the session, so the driver built over it cannot reach another.
+type scratchSpaces interface {
+	ScratchSpace(tenant, session string) drivermem.Store
+}
+
+func newProvider(registrations []registry.Registration, services registry.Services, scratch scratchSpaces) *provider {
+	return &provider{registry: registry.New(registrations...), services: services, scratch: scratch}
 }
 
 // ValidateConfig refuses a grant's config at the door — at CreateProcess, so a
@@ -46,5 +55,9 @@ func (p *provider) NewDispatcher(
 			Syscall: grant.Syscall, Config: grant.Config, Hidden: grant.Hidden,
 		})
 	}
-	return p.registry.Build(ctx, entries, p.services)
+	// The scratch space is the one per-process service: the credential, never
+	// the manifest, names the session whose store the build gets.
+	services := p.services
+	services.Scratch = p.scratch.ScratchSpace(cred.TenantID, cred.SessionID)
+	return p.registry.Build(ctx, entries, services)
 }

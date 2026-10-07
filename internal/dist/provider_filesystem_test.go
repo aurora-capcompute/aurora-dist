@@ -11,6 +11,7 @@ import (
 	"github.com/aurora-capcompute/aurora-capcompute/capability"
 	"github.com/aurora-capcompute/aurora-dispatchers/filesystem"
 	"github.com/aurora-capcompute/aurora-dispatchers/registry"
+	distmem "github.com/aurora-capcompute/aurora-dist/internal/dist/store/memory"
 	"github.com/aurora-capcompute/capcompute/sys"
 )
 
@@ -26,6 +27,7 @@ func TestProviderServesFilesystemRead(t *testing.T) {
 	provider := newProvider(
 		[]registry.Registration{filesystem.Registration{}},
 		registry.Services{},
+		distmem.NewScratchSpaces(),
 	)
 	manifest := aurora.Manifest{
 		Version: aurora.ManifestVersion,
@@ -81,6 +83,7 @@ func TestProviderFilesystemRootConfinement(t *testing.T) {
 	provider := newProvider(
 		[]registry.Registration{filesystem.Registration{}},
 		registry.Services{},
+		distmem.NewScratchSpaces(),
 	)
 	manifest := aurora.Manifest{
 		Version: aurora.ManifestVersion,

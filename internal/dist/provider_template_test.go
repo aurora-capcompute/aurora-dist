@@ -13,6 +13,7 @@ import (
 	"github.com/aurora-capcompute/aurora-capcompute/capability"
 	"github.com/aurora-capcompute/aurora-dispatchers/httptemplate"
 	"github.com/aurora-capcompute/aurora-dispatchers/registry"
+	distmem "github.com/aurora-capcompute/aurora-dist/internal/dist/store/memory"
 	"github.com/aurora-capcompute/capcompute/sys"
 )
 
@@ -39,6 +40,7 @@ func TestProviderTemplateEndToEnd(t *testing.T) {
 			Secrets:  injectResolver{"ONYX_TOKEN": "tok-abc"},
 			AuditKey: []byte("audit-key"),
 		},
+		distmem.NewScratchSpaces(),
 	)
 	config := fmt.Sprintf(`{"base_url":%q,"allow_private_network":true,`+
 		`"capabilities":[{"operation":"search","method":"POST","path":"/api/search",`+
@@ -88,6 +90,7 @@ func TestProviderTemplateFailsClosedOnMissingSecret(t *testing.T) {
 	provider := newProvider(
 		[]registry.Registration{httptemplate.Registration{}},
 		registry.Services{Secrets: injectResolver{}},
+		distmem.NewScratchSpaces(),
 	)
 	manifest := aurora.Manifest{
 		Version: aurora.ManifestVersion,
