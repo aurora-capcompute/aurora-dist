@@ -46,9 +46,8 @@ func TestResumeInterruptedRetriesOnlyInterrupted(t *testing.T) {
 				process("root", aurora.ProcessInterrupted),
 				process("parked", aurora.ProcessWaitingTask),
 			}},
-			// A completed or parked process never needs the kick.
+			// A completed process never needs the kick.
 			"ses_2": {SessionSummary: aurora.SessionSummary{ID: "ses_2"}, Processes: []aurora.ProcessLog{
-				process("yielded", aurora.ProcessYielded),
 				process("orphan", aurora.ProcessInterrupted),
 				process("done", aurora.ProcessCompleted),
 			}},
@@ -60,6 +59,6 @@ func TestResumeInterruptedRetriesOnlyInterrupted(t *testing.T) {
 	sort.Strings(rt.retried)
 	want := []string{"orphan", "root"}
 	if len(rt.retried) != len(want) || rt.retried[0] != want[0] || rt.retried[1] != want[1] {
-		t.Fatalf("retried = %v, want %v (parked/yielded/completed untouched)", rt.retried, want)
+		t.Fatalf("retried = %v, want %v (parked/completed untouched)", rt.retried, want)
 	}
 }

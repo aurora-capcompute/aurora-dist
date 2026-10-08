@@ -1,8 +1,7 @@
 // Package api serves the distribution's HTTP API — the single way into the
 // runtime, versioned /v1 from birth (the resolution_token and session_id
 // renames were the cautionary tales). It is a thin projection of the runtime
-// surface plus the distribution's own gate: the capability ceiling enforced at
-// process creation.
+// surface.
 //
 // There is no principal authentication here by design: the distribution
 // serves one trusted client (a local terminal, or the policy layer once
@@ -18,7 +17,6 @@ import (
 	"net"
 	"net/http"
 	"strings"
-	"time"
 
 	"github.com/aurora-capcompute/aurora-capcompute/aurora"
 
@@ -173,11 +171,6 @@ type createProcessRequest struct {
 	// manifest entity in the core. Omitted means an empty composition (no
 	// tools) at the current manifest version.
 	Manifest *aurora.Manifest `json:"manifest,omitempty"`
-	// DeadlineMS bounds each of the process's quanta — the guest's own
-	// uninterrupted compute between syscalls. Omitted takes the host default;
-	// the runtime clamps anything
-	// above the host ceiling, so this can only ever ask for less.
-	DeadlineMS int64 `json:"deadline_ms,omitempty"`
 }
 
 func (h *handler) createProcess(w http.ResponseWriter, r *http.Request) {
@@ -189,7 +182,7 @@ func (h *handler) createProcess(w http.ResponseWriter, r *http.Request) {
 	if req.Manifest != nil {
 		manifest = *req.Manifest
 	}
-	snapshot, err := h.dist.CreateProcess(r.PathValue("id"), req.Input, manifest, time.Duration(req.DeadlineMS)*time.Millisecond)
+	snapshot, err := h.dist.Runtime.CreateProcess(r.PathValue("id"), req.Input, manifest)
 	writeJSON(w, snapshot, err)
 }
 

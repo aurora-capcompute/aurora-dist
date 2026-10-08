@@ -25,8 +25,7 @@ runtime and:
 - compiles in a fixed set of **drivers** (internet, LLM, scratch, filesystem, …),
 - wires in a concrete **store** (in‑memory for throwaway runs, or SQLite for
   durability),
-- runs the always‑on **services** (hot‑reloading programs, enforcing a capability
-  ceiling), and
+- loads its **programs** from a directory at boot, and
 - serves it all behind a single versioned **HTTP `/v1` API**.
 
 The result is the deployable server that a client like
@@ -59,8 +58,7 @@ The result is the deployable server that a client like
 | **Compiled‑in drivers** | `core.internet`, `core.scratch`, `core.filesystem`, `core.command`, `core.httpTemplate`, `core.openaiApi` (LLM), plus `sys.timer` and `sys.declassify` |
 | **Two store backends** | In‑memory (nothing survives restart) or SQLite (durable append‑only event log and each session's `core.scratch` store) — chosen by whether you set `-data` |
 | **Durable timers** | The runtime fires `sys.timer` whether or not a client is attached; a fire time is absolute (task creation + duration), so a restart never shifts it, and a timer that elapsed during downtime fires at boot |
-| **Program hot‑reload** | Loads `<name>.wasm` + `<name>.json` pairs from a directory and re‑scans on a ticker; edit a program and it reloads (a `.wasm` with no `.json` is refused) |
-| **Capability ceiling** | An operator allowlist of capability names; process creation refuses any manifest that grants beyond it |
+| **Programs from a directory** | Loads `<name>.wasm` + `<name>.json` pairs once at boot; restart to pick up a changed program (a `.wasm` with no `.json` is refused) |
 | **Crash recovery** | On boot it re‑drives every process a host failure left mid‑flight; replay serves recorded results, and only a call whose completion was never journaled runs again |
 | **Host‑held secrets** | Manifests reference a secret by name; the value comes from `AURORA_SECRET_<NAME>` and never enters the manifest, journal, or guest |
 | **"One read, many views"** | `GET /v1/sessions/{id}` returns the entire session log; every narrower view is a client‑side grouping of that one payload |
@@ -148,8 +146,7 @@ export AURORA_TASK_SECRET=change-me-at-least-16-bytes
 {
   "addr": ":8080",
   "data_dir": "./data",
-  "programs": {"dir": "./programs"},
-  "capability_ceiling": ["sys.timer", "core.openaiApi"]
+  "programs": {"dir": "./programs"}
 }
 ```
 
@@ -218,11 +215,10 @@ design.
 ```
 cmd/aurora-dist/main.go     THE binary: flag/env parsing, HTTP server lifecycle
 internal/dist/
-  dist.go                   assembles stores + drivers + runtime + background loops
-  ceiling.go                the capability-ceiling gate at process creation
+  dist.go                   assembles stores + drivers + runtime + programs
   secrets.go                AURORA_SECRET_* name → value resolution
   api/                      the /v1 HTTP handlers
-  programs/                 loads *.wasm + *.json pairs, hot-reload
+  programs/                 loads *.wasm + *.json pairs
   store/memory/             in-memory event log and scratch spaces
   store/sqlite/             durable SQLite store (event log, scratch spaces)
 ```

@@ -1,10 +1,8 @@
 // Package programs is the distribution's program registry: it loads program
 // artifacts from a directory — each a <name>.wasm paired with its <name>.json
-// interface manifest — and reconciles them into the runtime program by program
-// (unchanged programs keep running). Reading the filesystem and decoding the
-// manifest happen here: the runtime is handed prepared artifacts and never
-// touches a disk. The distribution re-scans the directory on a ticker so the
-// runtime's in-memory program set tracks the filesystem.
+// interface manifest — and registers them with the runtime once, at boot.
+// Reading the filesystem and decoding the manifest happen here: the runtime is
+// handed prepared artifacts and never touches a disk.
 package programs
 
 import (
@@ -27,7 +25,7 @@ import (
 // runtime sees the program.
 type Dir struct {
 	// Path is the directory scanned for *.wasm artifacts. Empty means no
-	// programs — the runtime boots empty and gains programs on first reload.
+	// programs.
 	Path string
 }
 
@@ -81,31 +79,16 @@ func (d Dir) List(_ context.Context) ([]aurora.ProgramData, error) {
 	return programs, nil
 }
 
-// Reload re-scans the directory and reconciles the runtime's registered programs
-// to it, one program at a time: every program on disk is registered — the runtime
-// withdraws whatever held the id first, stopping and ejecting the processes bound
-// to it — and a program that has left the directory is removed. A reload is
-// therefore forced: it re-registers even an unchanged program, so nothing running
-// survives a reload.
-func (d Dir) Reload(ctx context.Context, runtime aurora.Runtime) ([]aurora.ProgramArtifact, error) {
+// Load registers every program in the directory with the runtime.
+func (d Dir) Load(ctx context.Context, runtime aurora.Runtime) error {
 	listed, err := d.List(ctx)
 	if err != nil {
-		return nil, err
+		return err
 	}
-	onDisk := make(map[aurora.ProgramID]struct{}, len(listed))
 	for _, program := range listed {
-		onDisk[program.ID] = struct{}{}
 		if err := runtime.AddProgram(ctx, program); err != nil {
-			return nil, err
+			return err
 		}
 	}
-	for _, registered := range runtime.Programs() {
-		if _, keep := onDisk[registered.ID]; keep {
-			continue
-		}
-		if err := runtime.RemoveProgram(ctx, registered.ID.String()); err != nil {
-			return nil, err
-		}
-	}
-	return runtime.Programs(), nil
+	return nil
 }

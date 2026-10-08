@@ -500,44 +500,6 @@ func TestDistributionResumesInterruptedProcess(t *testing.T) {
 	}
 }
 
-// The ceiling refuses over-grants at the door with a 400, before the runtime
-// sees the manifest.
-func TestCapabilityCeilingOverHTTP(t *testing.T) {
-	ctx := context.Background()
-	d, err := dist.New(ctx, dist.Config{
-		Secrets:           e2eSecrets,
-		TaskSecret:        []byte("e2e-secret"),
-		CapabilityCeiling: []string{"sys.timer"},
-		Logger:            slog.New(slog.NewTextHandler(io.Discard, nil)),
-	})
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer d.Close(ctx)
-	server := httptest.NewServer(api.Handler(d))
-	defer server.Close()
-
-	var session aurora.SessionSnapshot
-	c := &client{t: t, base: server.URL, http: server.Client()}
-	c.do(http.MethodPost, "/v1/sessions", nil, &session)
-
-	body, _ := json.Marshal(map[string]any{
-		"input": "hi",
-		"manifest": aurora.Manifest{Version: aurora.ManifestVersion, Program: "agent", Syscalls: []aurora.Syscall{
-			{Syscall: "core.internet", Config: json.RawMessage(`{"capabilities":[{"methods":["GET"],"domain":"example.com"}]}`)},
-		}},
-	})
-	resp, err := http.Post(server.URL+"/v1/sessions/"+session.ID+"/processes", "application/json", bytes.NewReader(body))
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer resp.Body.Close()
-	raw, _ := io.ReadAll(resp.Body)
-	if resp.StatusCode != http.StatusBadRequest || !strings.Contains(string(raw), "core.internet") {
-		t.Fatalf("status = %d body = %s, want 400 naming the capability", resp.StatusCode, raw)
-	}
-}
-
 // TestAgentLoopIsCapped proves the reasoning loop is bounded: a model that never
 // finishes — it asks for a synchronous tool (a memory read) on every turn — is
 // forced to a final answer at the guest's step cap, so the process completes

@@ -44,9 +44,7 @@ type fileConfig struct {
 	Programs struct {
 		Dir string `json:"dir,omitempty"`
 	} `json:"programs"`
-	CapabilityCeiling    []string `json:"capability_ceiling,omitempty"`
-	MaxConcurrent        int      `json:"max_concurrent_processes,omitempty"`
-	ProgramReloadSeconds int      `json:"program_reload_seconds,omitempty"`
+	MaxConcurrent int `json:"max_concurrent_processes,omitempty"`
 }
 
 func main() {
@@ -119,12 +117,10 @@ func run() error {
 	d, err := dist.New(ctx, dist.Config{
 		DataDir:                pick(*dataDir, cfg.DataDir, ""),
 		ProgramsDir:            pick(*programsDir, cfg.Programs.Dir, ""),
-		CapabilityCeiling:      cfg.CapabilityCeiling,
 		TaskSecret:             taskSecret,
 		Secrets:                dist.NewEnvSecretResolver(),
 		AuditKey:               auditKey,
 		MaxConcurrentProcesses: cfg.MaxConcurrent,
-		ProgramReloadInterval:  time.Duration(cfg.ProgramReloadSeconds) * time.Second,
 		Logger:                 logger,
 	})
 	if err != nil {
