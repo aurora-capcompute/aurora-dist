@@ -197,7 +197,7 @@ func TestDistributionEndToEnd(t *testing.T) {
 		_ = d.Close(closeCtx)
 	}()
 
-	server := httptest.NewServer(api.Handler(d))
+	server := httptest.NewServer(api.Handler(d, nil))
 	defer server.Close()
 	c := &client{t: t, base: server.URL, http: server.Client()}
 
@@ -326,7 +326,7 @@ func TestDistributionRestartRecoversTimers(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	server := httptest.NewServer(api.Handler(first))
+	server := httptest.NewServer(api.Handler(first, nil))
 	c := &client{t: t, base: server.URL, http: server.Client()}
 
 	var session aurora.SessionSnapshot
@@ -367,7 +367,7 @@ func TestDistributionRestartRecoversTimers(t *testing.T) {
 		defer cancel()
 		_ = second.Close(ctx)
 	}()
-	server = httptest.NewServer(api.Handler(second))
+	server = httptest.NewServer(api.Handler(second, nil))
 	defer server.Close()
 	c = &client{t: t, base: server.URL, http: server.Client()}
 
@@ -438,7 +438,7 @@ func TestDistributionResumesInterruptedProcess(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	server := httptest.NewServer(api.Handler(first))
+	server := httptest.NewServer(api.Handler(first, nil))
 	c := &client{t: t, base: server.URL, http: server.Client()}
 
 	var session aurora.SessionSnapshot
@@ -477,7 +477,7 @@ func TestDistributionResumesInterruptedProcess(t *testing.T) {
 		defer cancel()
 		_ = second.Close(ctx)
 	}()
-	server = httptest.NewServer(api.Handler(second))
+	server = httptest.NewServer(api.Handler(second, nil))
 	defer server.Close()
 	c = &client{t: t, base: server.URL, http: server.Client()}
 
@@ -545,7 +545,7 @@ func TestAgentLoopIsCapped(t *testing.T) {
 		_ = d.Close(closeCtx)
 	}()
 
-	server := httptest.NewServer(api.Handler(d))
+	server := httptest.NewServer(api.Handler(d, nil))
 	defer server.Close()
 	c := &client{t: t, base: server.URL, http: server.Client()}
 
@@ -638,7 +638,7 @@ func TestAgentSalvagesProseReply(t *testing.T) {
 		_ = d.Close(closeCtx)
 	}()
 
-	server := httptest.NewServer(api.Handler(d))
+	server := httptest.NewServer(api.Handler(d, nil))
 	defer server.Close()
 	c := &client{t: t, base: server.URL, http: server.Client()}
 
@@ -755,7 +755,7 @@ func TestAgentOffloadsLargeInternetRead(t *testing.T) {
 		_ = d.Close(closeCtx)
 	}()
 
-	server := httptest.NewServer(api.Handler(d))
+	server := httptest.NewServer(api.Handler(d, nil))
 	defer server.Close()
 	c := &client{t: t, base: server.URL, http: server.Client()}
 
@@ -896,7 +896,7 @@ func TestScratchSurvivesAQuantumBoundary(t *testing.T) {
 		_ = d.Close(closeCtx)
 	}()
 
-	server := httptest.NewServer(api.Handler(d))
+	server := httptest.NewServer(api.Handler(d, nil))
 	defer server.Close()
 	c := &client{t: t, base: server.URL, http: server.Client()}
 
@@ -1007,7 +1007,7 @@ func TestScratchHandsOffBetweenProcessesWithoutHistory(t *testing.T) {
 		_ = d.Close(closeCtx)
 	}()
 
-	server := httptest.NewServer(api.Handler(d))
+	server := httptest.NewServer(api.Handler(d, nil))
 	defer server.Close()
 	c := &client{t: t, base: server.URL, http: server.Client()}
 
@@ -1105,7 +1105,7 @@ func TestAgentSheddingRecoversOversizedRequest(t *testing.T) {
 		_ = d.Close(closeCtx)
 	}()
 
-	server := httptest.NewServer(api.Handler(d))
+	server := httptest.NewServer(api.Handler(d, nil))
 	defer server.Close()
 	c := &client{t: t, base: server.URL, http: server.Client()}
 

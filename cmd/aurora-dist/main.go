@@ -44,7 +44,11 @@ type fileConfig struct {
 	Programs struct {
 		Dir string `json:"dir,omitempty"`
 	} `json:"programs"`
-	MaxConcurrent int `json:"max_concurrent_processes,omitempty"`
+	MaxConcurrent          int `json:"max_concurrent_processes,omitempty"`
+	QuantumDeadlineSeconds int `json:"quantum_deadline_seconds,omitempty"`
+	// TrustedHosts are host names the API accepts besides localhost and IP
+	// addresses, for example a cluster service name.
+	TrustedHosts []string `json:"trusted_hosts,omitempty"`
 }
 
 func main() {
@@ -121,6 +125,7 @@ func run() error {
 		Secrets:                dist.NewEnvSecretResolver(),
 		AuditKey:               auditKey,
 		MaxConcurrentProcesses: cfg.MaxConcurrent,
+		QuantumDeadline:        time.Duration(cfg.QuantumDeadlineSeconds) * time.Second,
 		Logger:                 logger,
 	})
 	if err != nil {
@@ -136,7 +141,7 @@ func run() error {
 
 	server := &http.Server{
 		Addr:    pick(*addr, cfg.Addr, defaultAddr),
-		Handler: api.Handler(d),
+		Handler: api.Handler(d, cfg.TrustedHosts),
 	}
 	errs := make(chan error, 1)
 	go func() {

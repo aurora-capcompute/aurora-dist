@@ -21,9 +21,11 @@ func TestAllowedHostDefeatsRebinding(t *testing.T) {
 		"attacker.example:8080": false,
 		"attacker.example":      false,
 		"":                      true, // HTTP/1.0 or a proxy stripped it
+		"aurora-dist:8080":      true, // a trusted cluster name
+		"AURORA-DIST":           true,
 	}
 	for host, want := range cases {
-		if got := allowedHost(host); got != want {
+		if got := allowedHost(host, []string{"aurora-dist"}); got != want {
 			t.Fatalf("allowedHost(%q) = %v, want %v", host, got, want)
 		}
 	}
@@ -32,7 +34,7 @@ func TestAllowedHostDefeatsRebinding(t *testing.T) {
 func TestGuardRebindingRejectsDomainHost(t *testing.T) {
 	guarded := guardRebinding(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		w.WriteHeader(http.StatusOK)
-	}))
+	}), nil)
 
 	rebind := httptest.NewRequest(http.MethodPost, "http://x/v1/sessions", nil)
 	rebind.Host = "attacker.example"

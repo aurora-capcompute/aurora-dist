@@ -16,6 +16,7 @@ import (
 	"fmt"
 	"net"
 	"net/http"
+	"slices"
 	"strings"
 
 	"github.com/aurora-capcompute/aurora-capcompute/aurora"
@@ -23,8 +24,10 @@ import (
 	"github.com/aurora-capcompute/aurora-dist/internal/dist"
 )
 
-// Handler serves the /v1 API over an assembled distribution.
-func Handler(d *dist.Dist) http.Handler {
+// Handler serves the /v1 API over an assembled distribution. trustedHosts are
+// host names the API accepts besides localhost and IP addresses, such as a
+// cluster service name that a connector uses to reach the server.
+func Handler(d *dist.Dist, trustedHosts []string) http.Handler {
 	h := &handler{dist: d}
 	mux := http.NewServeMux()
 
@@ -55,7 +58,7 @@ func Handler(d *dist.Dist) http.Handler {
 		w.WriteHeader(http.StatusOK)
 		_, _ = w.Write([]byte("ok"))
 	})
-	return guardRebinding(mux)
+	return guardRebinding(mux, trustedHosts)
 }
 
 // guardRebinding defends the deliberately unauthenticated, loopback-scoped API
@@ -65,10 +68,11 @@ func Handler(d *dist.Dist) http.Handler {
 // capability-bearing process or reading session data. Such a request still
 // carries the attacker's DOMAIN in the Host header, so allowing only an IP
 // literal or "localhost" (an IP cannot be rebound) closes the vector without
-// affecting a loopback client, which connects by address.
-func guardRebinding(next http.Handler) http.Handler {
+// affecting a loopback client, which connects by address. The operator's
+// trusted host names are internal names: an attacker's domain is never one.
+func guardRebinding(next http.Handler, trustedHosts []string) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if !allowedHost(r.Host) {
+		if !allowedHost(r.Host, trustedHosts) {
 			http.Error(w, "host not allowed", http.StatusForbidden)
 			return
 		}
@@ -76,7 +80,7 @@ func guardRebinding(next http.Handler) http.Handler {
 	})
 }
 
-func allowedHost(host string) bool {
+func allowedHost(host string, trustedHosts []string) bool {
 	if host == "" {
 		return true // HTTP/1.0 or a proxy that stripped it — nothing to rebind
 	}
@@ -84,7 +88,8 @@ func allowedHost(host string) bool {
 	if h, _, err := net.SplitHostPort(host); err == nil {
 		hostname = h
 	}
-	return strings.EqualFold(hostname, "localhost") || net.ParseIP(hostname) != nil
+	return strings.EqualFold(hostname, "localhost") || net.ParseIP(hostname) != nil ||
+		slices.ContainsFunc(trustedHosts, func(trusted string) bool { return strings.EqualFold(trusted, hostname) })
 }
 
 type handler struct {

@@ -127,9 +127,18 @@ A flag overrides the config file. The config file:
   "addr": "127.0.0.1:8080",
   "data_dir": "./data",
   "programs": {"dir": "./programs"},
-  "max_concurrent_processes": 16
+  "max_concurrent_processes": 16,
+  "quantum_deadline_seconds": 1800,
+  "trusted_hosts": ["aurora-dist"]
 }
 ```
+
+- `quantum_deadline_seconds` bounds one run between two yields, including its
+  LLM and tool calls (default 30 minutes). A run past it becomes
+  `interrupted`, and a retry resumes it.
+- `trusted_hosts` lists host names the API accepts besides `localhost` and IP
+  addresses, for example the service name a connector uses. The API refuses any
+  other name, to block DNS rebinding.
 
 Environment (each also accepts a `_FILE` form that names a file):
 
@@ -142,7 +151,8 @@ Environment (each also accepts a `_FILE` form that names a file):
 
 The API has no principal authentication. It serves one trusted client, so it
 binds to loopback by default. Put it behind network isolation before you bind
-it to any other address. Task resolution still needs each task's token.
+it to any other address, and list the name clients use in `trusted_hosts`.
+Task resolution still needs each task's token.
 
 Confine the server, because `core.command` does not confine what an allowed
 binary does:

@@ -13,6 +13,7 @@ import (
 	"log/slog"
 	"path/filepath"
 	"strings"
+	"time"
 
 	"github.com/aurora-capcompute/aurora-capcompute/aurora"
 	"github.com/aurora-capcompute/aurora-dispatchers/openaillm"
@@ -47,6 +48,9 @@ type Config struct {
 	AuditKey []byte
 
 	MaxConcurrentProcesses int
+	// QuantumDeadline bounds one quantum, including its driver calls (0 = the
+	// runtime's default).
+	QuantumDeadline time.Duration
 
 	Logger *slog.Logger
 }
@@ -108,6 +112,7 @@ func New(ctx context.Context, cfg Config) (*Dist, error) {
 		Log:                    log,
 		TaskSecret:             cfg.TaskSecret,
 		MaxConcurrentProcesses: cfg.MaxConcurrentProcesses,
+		QuantumDeadline:        cfg.QuantumDeadline,
 	})
 	if err != nil {
 		for _, closer := range closers {
