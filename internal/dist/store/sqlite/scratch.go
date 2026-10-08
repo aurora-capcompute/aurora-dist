@@ -14,7 +14,6 @@ CREATE TABLE IF NOT EXISTS scratch_values (
 	key        TEXT    NOT NULL,
 	value      BLOB    NOT NULL,
 	labels     TEXT    NOT NULL DEFAULT '[]',
-	version    INTEGER NOT NULL,
 	PRIMARY KEY (session_id, key)
 );
 `
@@ -31,66 +30,40 @@ type scratchSpace struct {
 	session string
 }
 
-func (sp scratchSpace) Get(ctx context.Context, key string) (json.RawMessage, []string, int64, bool, error) {
+func (sp scratchSpace) Get(ctx context.Context, key string) (json.RawMessage, []string, bool, error) {
 	var (
 		value   []byte
 		rawLbls string
-		version int64
 	)
 	err := sp.db.QueryRowContext(ctx,
-		`SELECT value,labels,version FROM scratch_values WHERE session_id=? AND key=?`,
-		sp.session, key).Scan(&value, &rawLbls, &version)
+		`SELECT value,labels FROM scratch_values WHERE session_id=? AND key=?`,
+		sp.session, key).Scan(&value, &rawLbls)
 	if err == sql.ErrNoRows {
-		return nil, nil, 0, false, nil
+		return nil, nil, false, nil
 	}
 	if err != nil {
-		return nil, nil, 0, false, err
+		return nil, nil, false, err
 	}
 	var labels []string
 	if err := json.Unmarshal([]byte(rawLbls), &labels); err != nil {
-		return nil, nil, 0, false, err
+		return nil, nil, false, err
 	}
-	return value, labels, version, true, nil
+	return value, labels, true, nil
 }
 
-// Put writes key under the version expectation; the version check and the
-// write share one transaction.
-func (sp scratchSpace) Put(ctx context.Context, key string, value json.RawMessage, labels []string, expect int64) (int64, error) {
+func (sp scratchSpace) Put(ctx context.Context, key string, value json.RawMessage, labels []string) error {
 	if labels == nil {
 		labels = []string{}
 	}
 	rawLbls, err := json.Marshal(labels)
 	if err != nil {
-		return 0, err
+		return err
 	}
-	tx, err := sp.db.BeginTx(ctx, nil)
-	if err != nil {
-		return 0, err
-	}
-	defer func() { _ = tx.Rollback() }()
-
-	var current int64 // zero when absent
-	switch err := tx.QueryRowContext(ctx,
-		`SELECT version FROM scratch_values WHERE session_id=? AND key=?`,
-		sp.session, key).Scan(&current); {
-	case err == sql.ErrNoRows:
-	case err != nil:
-		return 0, err
-	}
-	if expect != scratch.PutAny && expect != current {
-		return 0, scratch.ErrConflict
-	}
-	next := current + 1
-	if _, err := tx.ExecContext(ctx,
-		`INSERT INTO scratch_values(session_id,key,value,labels,version) VALUES(?,?,?,?,?)
-		 ON CONFLICT(session_id,key) DO UPDATE SET value=excluded.value, labels=excluded.labels, version=excluded.version`,
-		sp.session, key, []byte(value), string(rawLbls), next); err != nil {
-		return 0, err
-	}
-	if err := tx.Commit(); err != nil {
-		return 0, err
-	}
-	return next, nil
+	_, err = sp.db.ExecContext(ctx,
+		`INSERT INTO scratch_values(session_id,key,value,labels) VALUES(?,?,?,?)
+		 ON CONFLICT(session_id,key) DO UPDATE SET value=excluded.value, labels=excluded.labels`,
+		sp.session, key, []byte(value), string(rawLbls))
+	return err
 }
 
 // List returns the keys at or under prefix — whole path segments, so "notes"
