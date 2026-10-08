@@ -1,6 +1,6 @@
 // Package dist assembles the Aurora distribution: the aurora-capcompute
 // runtime compiled together with a fixed driver set (internet, scratch,
-// filesystem, httptemplate, command, openaillm), concrete stores (in-memory or
+// httptemplate, command, openaillm), concrete stores (in-memory or
 // SQLite), and the programs directory loaded at boot. One binary, one HTTP API
 // in front (internal/api).
 package dist
@@ -19,7 +19,6 @@ import (
 	"github.com/aurora-capcompute/aurora-dispatchers/registry"
 
 	"github.com/aurora-capcompute/aurora-dispatchers/command"
-	"github.com/aurora-capcompute/aurora-dispatchers/filesystem"
 	"github.com/aurora-capcompute/aurora-dispatchers/httptemplate"
 	"github.com/aurora-capcompute/aurora-dispatchers/internet"
 	"github.com/aurora-capcompute/aurora-dist/internal/dist/programs"
@@ -95,7 +94,6 @@ func New(ctx context.Context, cfg Config) (*Dist, error) {
 
 	provider := newProvider([]registry.Registration{
 		internet.Registration{},
-		filesystem.Registration{},
 		httptemplate.Registration{},
 		command.Registration{},
 		openaillm.Registration{},

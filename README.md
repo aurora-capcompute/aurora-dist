@@ -22,7 +22,7 @@ build" sense — not "distributed node.")
 It takes the [aurora-capcompute](https://github.com/aurora-capcompute/aurora-capcompute)
 runtime and:
 
-- compiles in a fixed set of **drivers** (internet, LLM, scratch, filesystem, …),
+- compiles in a fixed set of **drivers** (internet, LLM, scratch, command, …),
 - wires in a concrete **store** (in‑memory for throwaway runs, or SQLite for
   durability),
 - loads its **programs** from a directory at boot, and
@@ -55,7 +55,7 @@ The result is the deployable server that a client like
 | Feature | What it means |
 | --- | --- |
 | **One binary, one API** | Versioned `/v1` HTTP API from the start — the single way in |
-| **Compiled‑in drivers** | `core.internet`, `core.scratch`, `core.filesystem`, `core.command`, `core.httpTemplate`, `core.openaiApi` (LLM), plus `sys.timer` and `sys.declassify` |
+| **Compiled‑in drivers** | `core.internet`, `core.scratch`, `core.command`, `core.httpTemplate`, `core.openaiApi` (LLM), plus `sys.timer` and `sys.declassify` |
 | **Two store backends** | In‑memory (nothing survives restart) or SQLite (durable append‑only event log and each session's `core.scratch` store) — chosen by whether you set `-data` |
 | **Durable timers** | The runtime fires `sys.timer` whether or not a client is attached; a fire time is absolute (task creation + duration), so a restart never shifts it, and a timer that elapsed during downtime fires at boot |
 | **Programs from a directory** | Loads `<name>.wasm` + `<name>.json` pairs once at boot; restart to pick up a changed program (a `.wasm` with no `.json` is refused) |
