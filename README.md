@@ -97,7 +97,7 @@ A minimal `manifest.json`:
       "base_url": "https://api.openai.com/v1",
       "api_key": {"secret": "OPENAI_KEY"},
       "default_model": "gpt-4o",
-      "capabilities": [{"operation": "chat", "require_approval": false}]
+      "capabilities": [{"operation": "chat"}]
     },
     {"syscall": "core.internet",
      "capabilities": [{"methods": ["GET"], "domain": "status.example.com"}]},
