@@ -68,6 +68,14 @@ func New(ctx context.Context, cfg Config) (*Dist, error) {
 		logger = slog.Default()
 	}
 
+	// The runtime reads no filesystem: the programs are read here and compiled
+	// by the runtime at boot, so a distribution that cannot load its programs
+	// fails to start rather than accepting work it cannot run.
+	listed, err := programs.Dir{Path: cfg.ProgramsDir}.List(ctx)
+	if err != nil {
+		return nil, err
+	}
+
 	var (
 		log     aurora.EventLog
 		spaces  scratchSpaces
@@ -98,22 +106,12 @@ func New(ctx context.Context, cfg Config) (*Dist, error) {
 
 	runtime, err := aurora.NewRuntime(ctx, aurora.Config{
 		Dispatchers:            provider,
+		Programs:               listed,
 		Log:                    log,
 		TaskSecret:             cfg.TaskSecret,
 		MaxConcurrentProcesses: cfg.MaxConcurrentProcesses,
 	})
 	if err != nil {
-		for _, closer := range closers {
-			_ = closer.Close()
-		}
-		return nil, err
-	}
-
-	// The runtime boots with no programs: it reads no filesystem. Load the
-	// directory into it before serving, so a distribution that cannot register
-	// its programs fails to start rather than accepting work it cannot run.
-	if err := (programs.Dir{Path: cfg.ProgramsDir}).Load(ctx, runtime); err != nil {
-		_ = runtime.Close(ctx)
 		for _, closer := range closers {
 			_ = closer.Close()
 		}

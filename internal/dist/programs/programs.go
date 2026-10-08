@@ -1,7 +1,6 @@
 // Package programs is the distribution's program registry: it loads program
 // artifacts from a directory — each a <name>.wasm paired with its <name>.json
-// interface manifest — and registers them with the runtime once, at boot.
-// Reading the filesystem and decoding the manifest happen here: the runtime is
+// interface manifest — for the runtime to compile at boot. Reading the filesystem and decoding the manifest happen here: the runtime is
 // handed prepared artifacts and never touches a disk.
 package programs
 
@@ -77,18 +76,4 @@ func (d Dir) List(_ context.Context) ([]aurora.ProgramData, error) {
 	}
 	sort.Slice(programs, func(i, j int) bool { return programs[i].ID < programs[j].ID })
 	return programs, nil
-}
-
-// Load registers every program in the directory with the runtime.
-func (d Dir) Load(ctx context.Context, runtime aurora.Runtime) error {
-	listed, err := d.List(ctx)
-	if err != nil {
-		return err
-	}
-	for _, program := range listed {
-		if err := runtime.AddProgram(ctx, program); err != nil {
-			return err
-		}
-	}
-	return nil
 }
