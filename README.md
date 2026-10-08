@@ -1,163 +1,96 @@
 # aurora-dist
 
-**The Aurora server you actually run.** `aurora-dist` is *one binary* that bundles
-the whole Aurora agent runtime — kernel, orchestration, capability drivers, and
-storage — and exposes it over *one* HTTP API (`/v1`). Start it, point a client at
-it, and you're running AI agents locally.
+`aurora-dist` is the Aurora server: one binary with one HTTP API (`/v1`). It
+assembles the [aurora-capcompute](https://github.com/aurora-capcompute/aurora-capcompute)
+runtime with:
 
-> New here? This is the best place to start if you want to **run Aurora**. Read
-> [What is this](#what-is-this-in-plain-words), then follow
-> [Run the whole stack locally](#run-the-whole-stack-locally-5-minutes).
+- a fixed set of **drivers**: `core.internet`, `core.httpTemplate`,
+  `core.command`, `core.scratch`, `core.openaiApi`, plus the runtime's
+  `sys.timer` and `sys.declassify`.
+- a **store**: in memory, or SQLite for durability.
+- its **programs**, read from a directory at boot.
 
----
-
-## What is this, in plain words?
-
-Aurora's core libraries are deliberately abstract — they define *interfaces* and
-leave the concrete choices open. Someone has to pick the real drivers, pick a real
-database, run the background housekeeping, and put an API in front. **That's
-`aurora-dist`.** ("dist" = *distribution*, in the Linux‑distro / "batteries‑included
-build" sense — not "distributed node.")
-
-It takes the [aurora-capcompute](https://github.com/aurora-capcompute/aurora-capcompute)
-runtime and:
-
-- compiles in a fixed set of **drivers** (internet, LLM, scratch, command, …),
-- wires in a concrete **store** (in‑memory for throwaway runs, or SQLite for
-  durability),
-- loads its **programs** from a directory at boot, and
-- serves it all behind a single versioned **HTTP `/v1` API**.
-
-The result is the deployable server that a client like
-[aurora-cli](https://github.com/aurora-capcompute/aurora-cli) or the
-[Slack bot](https://github.com/aurora-capcompute/aurora-slack-connector) talks to.
-
-## Where this fits in the Aurora system
+"Dist" means distribution, as in a Linux distribution. Clients such as
+[aurora-cli](https://github.com/aurora-capcompute/aurora-cli) and the
+[Slack connector](https://github.com/aurora-capcompute/aurora-slack-connector)
+talk to it.
 
 ```
-        you (a human)
-              │
-   aurora-cli / aurora-slack-connector      ← clients you talk to
+   aurora-cli / aurora-slack-connector      clients
               │  HTTP /v1
-         aurora-dist                         ◀── YOU ARE HERE (the server)
-              │  assembled from…
+         aurora-dist                         the server (this repo)
+              │
    ┌──────────┴──────────┐
- aurora-capcompute    aurora-dispatchers     ← orchestration runtime + capability drivers
+ aurora-capcompute    aurora-dispatchers     runtime + drivers
    └──────────┬──────────┘
-              │  both built on
-         capcompute                          ← the kernel (the foundation)
+         capcompute                          the processor
 
-   aurora-brains  →  the Wasm agent "programs" it loads and runs
+   aurora-brains                             the Wasm programs it loads
 ```
 
-## What it does (features)
+## Behavior
 
-| Feature | What it means |
-| --- | --- |
-| **One binary, one API** | Versioned `/v1` HTTP API from the start — the single way in |
-| **Compiled‑in drivers** | `core.internet`, `core.scratch`, `core.command`, `core.httpTemplate`, `core.openaiApi` (LLM), plus `sys.timer` and `sys.declassify` |
-| **Two store backends** | In‑memory (nothing survives restart) or SQLite (durable append‑only event log and each session's `core.scratch` store) — chosen by whether you set `-data` |
-| **Durable timers** | The runtime fires `sys.timer` whether or not a client is attached; a fire time is absolute (task creation + duration), so a restart never shifts it, and a timer that elapsed during downtime fires at boot |
-| **Programs from a directory** | Loads `<name>.wasm` + `<name>.json` pairs once at boot; restart to pick up a changed program (a `.wasm` with no `.json` is refused) |
-| **Crash recovery** | On boot it re‑drives every process a host failure left mid‑flight; replay serves recorded results, and only a call whose completion was never journaled runs again |
-| **Host‑held secrets** | Manifests reference a secret by name; the value comes from `AURORA_SECRET_<NAME>` and never enters the manifest, journal, or guest |
-| **"One read, many views"** | `GET /v1/sessions/{id}` returns the entire session log; every narrower view is a client‑side grouping of that one payload |
+- **Store.** Without `-data`, everything is in memory and a restart loses it.
+  With `-data`, a SQLite file holds the event log and each session's
+  `core.scratch` store.
+- **Programs.** Each `<name>.wasm` needs a `<name>.json` interface beside it.
+  The server reads them once at boot. To change a program, restart. A process
+  bound to the old program cannot resume under the new one.
+- **Crash recovery.** At boot the server runs again every process that a host
+  failure interrupted. Replay serves recorded results. Only a call whose
+  completion was not journaled runs again.
+- **Timers.** The runtime fires `sys.timer` with no client attached. A fire time
+  is absolute, so a restart does not move it. A timer that came due during
+  downtime fires at boot.
+- **Secrets.** A manifest names a secret. The value comes from
+  `AURORA_SECRET_<NAME>` and never enters the manifest, the journal or the
+  guest.
+- **One read.** `GET /v1/sessions/{id}` returns the whole session. Clients
+  group it into narrower views.
 
-## Run the whole stack locally (5 minutes)
+## Run locally
 
-This gets you a working agent you can talk to from your terminal.
+Requirements: Go 1.26 or later. For a real agent, a Rust toolchain with the
+`wasm32-wasip1` target and an OpenAI-compatible API key.
 
-**Prerequisites:** Go 1.26+. For a real agent program, also a Rust toolchain with
-the `wasm32-wasip1` target. For talking to a real LLM, an OpenAI‑compatible API key.
+1. Build the agent program in an [aurora-brains](https://github.com/aurora-capcompute/aurora-brains)
+   checkout beside this repo:
 
-**1. Build an agent program** (from
-[aurora-brains](https://github.com/aurora-capcompute/aurora-brains), cloned beside
-this repo):
+   ```sh
+   cd ../aurora-brains
+   rustup target add wasm32-wasip1
+   sh programs/agent/build.sh        # programs/agent/dist/{agent.wasm,agent.json}
+   mkdir -p ../aurora-dist/programs
+   cp programs/agent/dist/agent.* ../aurora-dist/programs/
+   ```
 
-```sh
-cd ../aurora-brains
-rustup target add wasm32-wasip1
-sh programs/agent/build.sh          # → programs/agent/dist/{agent.wasm, agent.json}
+2. Build and start the server:
 
-mkdir -p ../aurora-dist/programs
-cp programs/agent/dist/agent.* ../aurora-dist/programs/
-```
+   ```sh
+   cd ../aurora-dist
+   go build ./cmd/aurora-dist
+   export AURORA_TASK_SECRET=change-me-at-least-16-bytes
+   export AURORA_SECRET_OPENAI_KEY=sk-...
+   ./aurora-dist -data ./data -programs ./programs
+   curl http://127.0.0.1:8080/healthz       # ok
+   curl http://127.0.0.1:8080/v1/programs   # the loaded programs and their schemas
+   ```
 
-**2. Build and run the server:**
+3. Talk to it with [aurora-cli](https://github.com/aurora-capcompute/aurora-cli):
 
-```sh
-cd ../aurora-dist
-go build ./cmd/aurora-dist          # → ./aurora-dist
+   ```sh
+   aurora mount http://127.0.0.1:8080
+   aurora mkdir demo && aurora cd demo
+   export AURORA_MANIFEST=manifest.json
+   aurora spawn "say hello"
+   ```
 
-export AURORA_TASK_SECRET=change-me-at-least-16-bytes   # required, ≥ 16 bytes
-./aurora-dist -addr :8080 -data ./data -programs ./programs
-```
-
-That's it — the server is up on `http://localhost:8080`. Check it:
-
-```sh
-curl http://localhost:8080/healthz      # → ok
-curl http://localhost:8080/v1/programs  # the loaded agent + its input/output schema
-```
-
-**3. Drive it.** Use [aurora-cli](https://github.com/aurora-capcompute/aurora-cli):
-
-```sh
-aurora mount http://127.0.0.1:8080
-aurora mkdir demo && aurora cd demo
-export AURORA_MANIFEST=manifest.json    # the agent's grant set (see below)
-aurora spawn "say hello"
-```
-
-### The simplest possible run
-
-No program directory, no Rust, nothing persisted — just boot the server on
-in‑memory stores to poke the API:
-
-```sh
-export AURORA_TASK_SECRET=change-me-at-least-16-bytes
-./aurora-dist -addr :8080            # no -data → in-memory; no -programs → zero programs
-```
-
-## Configuration
-
-**Flags** (flag > config‑file field > default):
-
-| Flag | Default | Meaning |
-| --- | --- | --- |
-| `-addr` | `127.0.0.1:8080` | Listen address (loopback by default — see the security note) |
-| `-data` | *(empty)* | Data directory for SQLite; empty = in‑memory |
-| `-programs` | *(empty)* | Directory of `<name>.wasm` + `<name>.json` program pairs |
-| `-config` | | Path to a JSON config file |
-| `-version` | | Print version and exit |
-
-**Environment variables:**
-
-- `AURORA_TASK_SECRET` (or `…_FILE`) — **required**, ≥ 16 bytes. Keys the bearer
-  tokens that authenticate task resolution.
-- `AURORA_SECRET_<NAME>` (or `…_FILE`) — value for a manifest secret reference named
-  `<NAME>`. The `_FILE` form keeps secrets out of the environment.
-- `AURORA_AUDIT_KEY` (or `…_FILE`) — optional; keys the credential fingerprints in
-  audit logs.
-
-**Config file** (`-config dist.json`):
-
-```json
-{
-  "addr": ":8080",
-  "data_dir": "./data",
-  "programs": {"dir": "./programs"}
-}
-```
-
-### A starter manifest
-
-A manifest is the grant set for each process — it names the LLM driver and the leaf
-capabilities the agent may use. Point `$AURORA_MANIFEST` at a file like:
+A minimal `manifest.json`:
 
 ```json
 {
   "version": 4,
+  "program": "agent",
   "syscalls": [
     {
       "syscall": "core.openaiApi", "hidden": true,
@@ -173,69 +106,90 @@ capabilities the agent may use. Point `$AURORA_MANIFEST` at a file like:
 }
 ```
 
-The `api_key` here is a **secret reference**, not the key itself: the value is
-resolved host‑side from the matching environment variable and never enters the
-manifest, journal, or guest. Set it before starting the server:
+`api_key` is a reference, not the key. Every credential field works this way:
+`api_key`, `inject_headers`, and secret values in a command's `env`. The server
+refuses an inline value such as `"api_key": "sk-..."`.
 
-```sh
-export AURORA_SECRET_OPENAI_KEY=sk-...        # or AURORA_SECRET_OPENAI_KEY_FILE=/run/secrets/openai
+## Configuration
+
+| Flag | Default | Meaning |
+| --- | --- | --- |
+| `-addr` | `127.0.0.1:8080` | Listen address |
+| `-data` | empty | SQLite data directory. Empty means in memory. |
+| `-programs` | empty | Directory of `<name>.wasm` + `<name>.json` |
+| `-config` | | JSON config file |
+| `-version` | | Print the version and exit |
+
+A flag overrides the config file. The config file:
+
+```json
+{
+  "addr": "127.0.0.1:8080",
+  "data_dir": "./data",
+  "programs": {"dir": "./programs"},
+  "max_concurrent_processes": 16
+}
 ```
 
-Every credential field works this way — `api_key`, `inject_headers`, and secret
-values in a command's `env`. An inline value such as `"api_key": "sk-..."` is
-refused when the manifest is validated.
+Environment (each also accepts a `_FILE` form that names a file):
 
-> **Security note.** There is deliberately **no principal/API authentication** —
-> `aurora-dist` serves one trusted local client, so it binds to `127.0.0.1` by
-> default. The `-addr :8080` example above exposes it on all interfaces; only do
-> that behind network isolation. (Task resolution still authenticates its bearer
-> `resolution_token`.)
+- `AURORA_TASK_SECRET`: required, at least 16 bytes. Keys the task resolution
+  tokens.
+- `AURORA_SECRET_<NAME>`: the value of the manifest secret `<NAME>`.
+- `AURORA_AUDIT_KEY`: optional. Keys the credential fingerprints in results.
+
+## Deployment
+
+The API has no principal authentication. It serves one trusted client, so it
+binds to loopback by default. Put it behind network isolation before you bind
+it to any other address. Task resolution still needs each task's token.
+
+Confine the server, because `core.command` does not confine what an allowed
+binary does:
+
+- Run it as a dedicated user, in a container or pod.
+- Give each command least-privilege credentials in its `env` (for example, a
+  read-only service account).
+- Limit egress in the platform (for example, a NetworkPolicy).
+- Run one replica: SQLite has one writer, and the runtime reads the log once,
+  at boot.
 
 ## The `/v1` API
 
-| Method & path | Meaning |
+| Method and path | Meaning |
 | --- | --- |
-| `GET /v1/sessions` · `POST /v1/sessions` | list summaries / create a session |
-| `GET /v1/sessions/{id}` | **the one comprehensive read** — the whole session log |
-| `POST /v1/sessions/{id}/processes` | start a process: `{message, manifest}` |
-| `GET /v1/processes/{id}` | cheap single‑process status poll |
-| `POST /v1/processes/{id}/stop` · `/retry` | steer (`{"mode":"resume"\|"restart"}`) |
-| `POST /v1/tasks/{id}/resolve` | `{resolution_token, resolution:{decision,…}}` |
-| `GET /v1/programs` | the loaded programs, each with its interface schema |
-| `GET /healthz` | returns `ok` |
+| `GET /v1/sessions` | Session summaries |
+| `POST /v1/sessions` | Create a session: `{name, tags}` |
+| `GET /v1/sessions/{id}` | The whole session: metadata, history, every process with its journal and tasks |
+| `POST /v1/sessions/{id}/rename` | Rename: `{name}` |
+| `POST /v1/sessions/{id}/processes` | Start a process: `{input, manifest}` |
+| `GET /v1/processes/{id}` | One process's status |
+| `POST /v1/processes/{id}/stop` | Stop a process |
+| `POST /v1/processes/{id}/retry` | `{"mode":"resume"}` or `{"mode":"restart"}` |
+| `POST /v1/tasks/{id}/resolve` | `{resolution_token, resolution:{decision, …}}` |
+| `GET /v1/programs` | The loaded programs and their interfaces |
+| `GET /healthz` | `ok` |
 
-`GET /v1/sessions/{id}` returns everything about a session — metadata, history, and
-every process with its full state, journal across all revisions, and tasks. A
-single revision, a task list — every narrower view is a client‑side grouping of
-that one payload. There is no separate `/journal` or `/tasks` endpoint by
-design.
-
-## Project layout
+## Layout
 
 ```
-cmd/aurora-dist/main.go     THE binary: flag/env parsing, HTTP server lifecycle
+cmd/aurora-dist/main.go   flags, environment, HTTP server
 internal/dist/
-  dist.go                   assembles stores + drivers + runtime + programs
-  secrets.go                AURORA_SECRET_* name → value resolution
-  api/                      the /v1 HTTP handlers
-  programs/                 loads *.wasm + *.json pairs
-  store/memory/             in-memory event log and scratch spaces
-  store/sqlite/             durable SQLite store (event log, scratch spaces)
+  dist.go                 assembles the stores, drivers, runtime and programs
+  provider.go             builds each process's grant table
+  secrets.go              AURORA_SECRET_* resolution
+  api/                    the /v1 handlers
+  programs/               reads *.wasm + *.json pairs
+  store/memory/           in-memory event log and scratch
+  store/sqlite/           SQLite event log and scratch
 ```
 
-## Verification
+## Test
 
 ```sh
 go vet ./...
-go test -race ./...   # end-to-end tests build the Rust agent from a sibling
-                      # aurora-brains checkout; they auto-skip if the toolchain is absent
+go test -race ./...
 ```
 
-## Related repos
-
-- [capcompute](https://github.com/aurora-capcompute/capcompute) — the kernel
-- [aurora-capcompute](https://github.com/aurora-capcompute/aurora-capcompute) — the runtime this server assembles
-- [aurora-dispatchers](https://github.com/aurora-capcompute/aurora-dispatchers) — the drivers compiled in
-- [aurora-brains](https://github.com/aurora-capcompute/aurora-brains) — the agent programs you drop in `-programs`
-- [aurora-cli](https://github.com/aurora-capcompute/aurora-cli) — the terminal client for this API
-- [aurora-slack-connector](https://github.com/aurora-capcompute/aurora-slack-connector) — a Slack bot client for this API
+The end-to-end tests build the agent from a sibling `aurora-brains` checkout.
+They skip when `cargo` is not installed.
