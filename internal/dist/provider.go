@@ -17,7 +17,7 @@ import (
 // scratch spaces give each build core.scratch over its own session's store.
 // There is no per-binding warmup here — manifests arrive per-process from the
 // single trusted client, already carrying their driver config; the policy
-// layer in front of multi-principal deployments is a separate service (D3).
+// layer in front of multi-principal deployments is a separate service.
 type provider struct {
 	// registrations are the compiled-in drivers other than core.scratch, which
 	// is registered per build over the session's store.
