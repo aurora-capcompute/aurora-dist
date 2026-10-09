@@ -685,19 +685,17 @@ func TestAgentSalvagesProseReply(t *testing.T) {
 	}
 }
 
-// TestAgentOffloadsLargeInternetRead proves a large fetched body is offloaded to
-// the store instead of inlined into the transcript: after a GET returns a body
-// well past the offload threshold, the model's next turn sees a reference
-// (stored_key + summary + a short excerpt), never the full body — so a deep tail
-// marker that sits past the excerpt can only reach the model if offloading
-// failed.
-func TestAgentOffloadsLargeInternetRead(t *testing.T) {
+// A large tool result is saved, and the model sees its key and its head, never
+// the whole result. When the model asks to summarize it, the agent summarizes
+// the saved value in a separate chat, and only the summary reaches the model.
+// A marker at the end of the page, past the head, shows which chat saw what.
+func TestAgentSavesLargeResultAndSummarizesItApart(t *testing.T) {
 	wasm := buildProgram(t)
 	programsDir := t.TempDir()
 	writeProgramDir(t, programsDir, wasm)
 
 	const deepMarker = "DEEP_BODY_SENTINEL_should_never_reach_the_model"
-	// ~110 KB, past the 48 KB offload threshold; the marker sits at the very end,
+	// ~110 KB, past the 48 KB inline limit; the marker sits at the very end,
 	// well beyond the 2 KB head excerpt.
 	bigBody := strings.Repeat("lorem ipsum dolor sit amet consectetur adipiscing elit. ", 2000) + deepMarker
 
@@ -707,7 +705,10 @@ func TestAgentOffloadsLargeInternetRead(t *testing.T) {
 	}))
 	defer internet.Close()
 
-	var sawStoredKey, leaked atomic.Bool
+	const summary = "The page is lorem ipsum with a sentinel at its end."
+	savedKey := regexp.MustCompile(`io/[0-9a-f]{16}`)
+	var turn atomic.Int32
+	var sawKey, summarizerSawMarker, sawSummary, leaked atomic.Bool
 	llm := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if !strings.HasSuffix(r.URL.Path, "/chat/completions") {
 			http.NotFound(w, r)
@@ -715,20 +716,25 @@ func TestAgentOffloadsLargeInternetRead(t *testing.T) {
 		}
 		body, _ := io.ReadAll(r.Body)
 		var reply string
-		switch {
-		case bytes.Contains(body, []byte("compress a web page")):
-			// The fetch summarizer — a self-contained chat; reply with prose.
-			reply = "The page is placeholder lorem-ipsum text with no substantive content."
-		case bytes.Contains(body, []byte("stored_key")):
-			// The agent's turn after the offload: it must see the reference, not
-			// the full body.
-			sawStoredKey.Store(true)
+		if bytes.Contains(body, []byte("You summarize a saved tool result")) {
+			// The separate summarize chat: it reads the whole saved value.
+			summarizerSawMarker.Store(bytes.Contains(body, []byte(deepMarker)))
+			reply = summary
+		} else {
 			if bytes.Contains(body, []byte(deepMarker)) {
 				leaked.Store(true)
 			}
-			reply = `{"actions":[{"action":"final","content":{"answer":"done"}}]}`
-		default:
-			reply = fmt.Sprintf(`{"actions":[{"action":"core.internet","content":{"method":"GET","url":%q}}]}`, internet.URL+"/page")
+			switch turn.Add(1) {
+			case 1:
+				reply = fmt.Sprintf(`{"actions":[{"action":"core.internet","content":{"method":"GET","url":%q}}]}`, internet.URL+"/page")
+			case 2:
+				key := savedKey.Find(body)
+				sawKey.Store(key != nil)
+				reply = fmt.Sprintf(`{"actions":[{"action":"summarize","content":{"key":%q,"focus":"what is on the page"}}]}`, key)
+			default:
+				sawSummary.Store(bytes.Contains(body, []byte(summary)))
+				reply = `{"actions":[{"action":"final","content":{"answer":"done"}}]}`
+			}
 		}
 		payload, _ := json.Marshal(map[string]any{
 			"choices": []any{map[string]any{"message": map[string]any{"content": reply}}},
@@ -772,10 +778,13 @@ func TestAgentOffloadsLargeInternetRead(t *testing.T) {
 		// blocks by default; opt in as a real deployment reaching an internal
 		// service would.
 		"allow_private_network": true,
+		// The whole page, marker included, must be saved.
+		"max_response_bytes": 1 << 20,
 	})
-	// Offload lands in core.scratch, the session's store.
+	// Results are saved in core.scratch, the session's store, and summarize
+	// reads them back with get.
 	scratchConfig, _ := json.Marshal(map[string]any{
-		"capabilities": []map[string]any{{"operation": "put"}, {"operation": "get"}, {"operation": "search"}},
+		"capabilities": []map[string]any{{"operation": "store"}, {"operation": "get"}, {"operation": "search"}},
 	})
 	manifest := aurora.Manifest{
 		Version: aurora.ManifestVersion,
@@ -810,18 +819,24 @@ func TestAgentOffloadsLargeInternetRead(t *testing.T) {
 		time.Sleep(50 * time.Millisecond)
 	}
 
-	if !sawStoredKey.Load() {
-		t.Fatal("the model never saw an offloaded observation (stored_key) — offload did not trigger")
+	if !sawKey.Load() {
+		t.Fatal("the model never saw the saved result's key")
+	}
+	if !summarizerSawMarker.Load() {
+		t.Fatal("the summarize chat did not read the whole saved result")
+	}
+	if !sawSummary.Load() {
+		t.Fatal("the summary did not reach the model")
 	}
 	if leaked.Load() {
-		t.Fatal("the full response body reached the model — it was inlined, not offloaded")
+		t.Fatal("the whole result reached the model's conversation")
 	}
 }
 
-// A value put in scratch must still be there after the process parks and
-// resumes. The offloaded page is stored in one quantum, a timer ends that
-// quantum, and the search for its tail runs in the next one — where replay
-// serves the put from the journal instead of re-running it.
+// A saved result must still be there after the process parks and resumes. The
+// page is saved in one quantum, a timer ends that quantum, and the search for
+// its tail runs in the next one — where replay serves the store from the
+// journal instead of running it again.
 func TestScratchSurvivesAQuantumBoundary(t *testing.T) {
 	wasm := buildProgram(t)
 	programsDir := t.TempDir()
@@ -838,7 +853,7 @@ func TestScratchSurvivesAQuantumBoundary(t *testing.T) {
 	}))
 	defer internet.Close()
 
-	storedKey := regexp.MustCompile(`fetch/[0-9A-Za-z]+`)
+	storedKey := regexp.MustCompile(`io/[0-9a-f]{16}`)
 	var turn atomic.Int32
 	var searchFound atomic.Bool
 	llm := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -848,28 +863,24 @@ func TestScratchSurvivesAQuantumBoundary(t *testing.T) {
 		}
 		body, _ := io.ReadAll(r.Body)
 		var reply string
-		if bytes.Contains(body, []byte("compress a web page")) {
-			reply = "The page is placeholder lorem-ipsum text."
-		} else {
-			switch turn.Add(1) {
-			case 1:
-				reply = fmt.Sprintf(`{"actions":[{"action":"core.internet","content":{"method":"GET","url":%q}}]}`, internet.URL+"/page")
-			case 2:
-				// The page is offloaded; park on a timer so the search runs in a
-				// later quantum.
-				reply = `{"actions":[{"action":"sys.timer","content":{"duration_seconds":1,"label":"nap"}}]}`
-			case 3:
-				key := storedKey.Find(body)
-				if key == nil {
-					t.Errorf("no stored key in the transcript")
-				}
-				// The pattern matches the marker without spelling it, so the marker
-				// can reach the next turn only through a search hit.
-				reply = fmt.Sprintf(`{"actions":[{"action":"core.scratch","content":{"operation":"search","key":%q,"pattern":"SENTINEL_[a-z_]+"}}]}`, key)
-			default:
-				searchFound.Store(bytes.Contains(body, []byte(deepMarker)))
-				reply = `{"actions":[{"action":"final","content":{"answer":"done"}}]}`
+		switch turn.Add(1) {
+		case 1:
+			reply = fmt.Sprintf(`{"actions":[{"action":"core.internet","content":{"method":"GET","url":%q}}]}`, internet.URL+"/page")
+		case 2:
+			// The page is saved; park on a timer so the search runs in a later
+			// quantum.
+			reply = `{"actions":[{"action":"sys.timer","content":{"duration_seconds":1,"label":"nap"}}]}`
+		case 3:
+			key := storedKey.Find(body)
+			if key == nil {
+				t.Errorf("no saved key in the transcript")
 			}
+			// The pattern matches the marker without spelling it, so the marker
+			// can reach the next turn only through a search hit.
+			reply = fmt.Sprintf(`{"actions":[{"action":"core.scratch","content":{"operation":"search","key":%q,"pattern":"SENTINEL_[a-z_]+"}}]}`, key)
+		default:
+			searchFound.Store(bytes.Contains(body, []byte(deepMarker)))
+			reply = `{"actions":[{"action":"final","content":{"answer":"done"}}]}`
 		}
 		payload, _ := json.Marshal(map[string]any{
 			"choices": []any{map[string]any{"message": map[string]any{"content": reply}}},
@@ -914,7 +925,7 @@ func TestScratchSurvivesAQuantumBoundary(t *testing.T) {
 		"max_response_bytes": 1 << 20,
 	})
 	scratchConfig, _ := json.Marshal(map[string]any{
-		"capabilities": []map[string]any{{"operation": "put"}, {"operation": "search"}},
+		"capabilities": []map[string]any{{"operation": "store"}, {"operation": "search"}},
 	})
 	manifest := aurora.Manifest{
 		Version: aurora.ManifestVersion,
