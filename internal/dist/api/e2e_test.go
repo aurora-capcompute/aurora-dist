@@ -1164,3 +1164,113 @@ func TestAgentSheddingRecoversOversizedRequest(t *testing.T) {
 		t.Fatalf("answer = %q", process.Answer)
 	}
 }
+
+// Compaction never paraphrases the head: the run's input can carry rules that
+// must reach every later turn word for word. When the run's own turns grow past
+// the compaction threshold, the summary chat gets only those turns, and the
+// next turn still has the input as it was written.
+func TestCompactionKeepsTheInput(t *testing.T) {
+	wasm := buildProgram(t)
+	programsDir := t.TempDir()
+	writeProgramDir(t, programsDir, wasm)
+
+	const rule = "SAFETY-RULE-7731: never delete anything"
+	// Each reply carries ~150 KB of padding, so four turns pass the 512 KB
+	// compaction threshold.
+	padding := strings.Repeat("x", 150*1024)
+	var compacted, summarizerSawRule, keptRule atomic.Bool
+	llm := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if !strings.HasSuffix(r.URL.Path, "/chat/completions") {
+			http.NotFound(w, r)
+			return
+		}
+		body, _ := io.ReadAll(r.Body)
+		var reply string
+		switch {
+		case bytes.Contains(body, []byte("compress an AI agent's earlier working log")):
+			summarizerSawRule.Store(bytes.Contains(body, []byte(rule)))
+			reply = "The agent listed its notes several times."
+		case bytes.Contains(body, []byte("[Earlier steps, compacted")):
+			compacted.Store(true)
+			keptRule.Store(bytes.Contains(body, []byte(rule)))
+			reply = `{"actions":[{"action":"final","content":{"answer":"done"}}]}`
+		default:
+			reply = fmt.Sprintf(`{"actions":[{"action":"core.scratch","content":{"operation":"list"}}],"padding":%q}`, padding)
+		}
+		payload, _ := json.Marshal(map[string]any{
+			"choices": []any{map[string]any{"message": map[string]any{"content": reply}}},
+		})
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write(payload)
+	}))
+	defer llm.Close()
+
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	d, err := dist.New(ctx, dist.Config{
+		Secrets:     e2eSecrets,
+		ProgramsDir: programsDir,
+		TaskSecret:  []byte("e2e-secret"),
+		Logger:      slog.New(slog.NewTextHandler(io.Discard, nil)),
+	})
+	if err != nil {
+		t.Fatalf("assemble distribution: %v", err)
+	}
+	defer func() {
+		closeCtx, closeCancel := context.WithTimeout(context.Background(), 15*time.Second)
+		defer closeCancel()
+		_ = d.Close(closeCtx)
+	}()
+
+	server := httptest.NewServer(api.Handler(d, nil))
+	defer server.Close()
+	c := &client{t: t, base: server.URL, http: server.Client()}
+
+	llmConfig, _ := json.Marshal(map[string]any{
+		"base_url":            llm.URL + "/v1",
+		"api_key":             map[string]string{"secret": "OPENAI_KEY"},
+		"allow_insecure_http": true,
+		"default_model":       "stub-model",
+		"capabilities":        []map[string]any{{"operation": "chat", "require_approval": false}},
+	})
+	scratchConfig, _ := json.Marshal(map[string]any{
+		"capabilities": []map[string]any{{"operation": "list"}},
+	})
+	manifest := aurora.Manifest{
+		Version: aurora.ManifestVersion,
+		Program: "agent",
+		Syscalls: []aurora.Syscall{
+			{Syscall: "core.openaiApi", Config: llmConfig, Hidden: true},
+			{Syscall: "core.scratch", Config: scratchConfig},
+		},
+	}
+
+	var session aurora.SessionSnapshot
+	c.do(http.MethodPost, "/v1/sessions", map[string]any{}, &session)
+	var process aurora.ProcessSnapshot
+	c.do(http.MethodPost, "/v1/sessions/"+session.ID+"/processes", map[string]any{
+		"input":    rule + ". List the notes until you are told to stop.",
+		"manifest": manifest,
+	}, &process)
+
+	deadline := time.Now().Add(60 * time.Second)
+	for process.Status != aurora.ProcessCompleted {
+		if process.Status == aurora.ProcessFailed || process.Status == aurora.ProcessStopped {
+			t.Fatalf("process finished as %s: %s", process.Status, process.Error)
+		}
+		if time.Now().After(deadline) {
+			t.Fatalf("timed out in %s", process.Status)
+		}
+		time.Sleep(50 * time.Millisecond)
+		c.do(http.MethodGet, "/v1/processes/"+process.ID, nil, &process)
+	}
+	if !compacted.Load() {
+		t.Fatal("the transcript was never compacted")
+	}
+	if summarizerSawRule.Load() {
+		t.Fatal("the input went into the compaction summary")
+	}
+	if !keptRule.Load() {
+		t.Fatal("the turn after compaction lost the input")
+	}
+}
