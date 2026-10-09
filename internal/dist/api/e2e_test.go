@@ -1274,3 +1274,105 @@ func TestCompactionKeepsTheInput(t *testing.T) {
 		t.Fatal("the turn after compaction lost the input")
 	}
 }
+
+// runAgent runs one agent process against a stub LLM, with the LLM grant and
+// the extra grants given, and returns the process when it ends.
+func runAgent(t *testing.T, llm http.HandlerFunc, extra ...aurora.Syscall) aurora.ProcessSnapshot {
+	t.Helper()
+	wasm := buildProgram(t)
+	programsDir := t.TempDir()
+	writeProgramDir(t, programsDir, wasm)
+	stub := httptest.NewServer(llm)
+	defer stub.Close()
+
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	d, err := dist.New(ctx, dist.Config{
+		Secrets:     e2eSecrets,
+		ProgramsDir: programsDir,
+		TaskSecret:  []byte("e2e-secret"),
+		Logger:      slog.New(slog.NewTextHandler(io.Discard, nil)),
+	})
+	if err != nil {
+		t.Fatalf("assemble distribution: %v", err)
+	}
+	defer func() {
+		closeCtx, closeCancel := context.WithTimeout(context.Background(), 15*time.Second)
+		defer closeCancel()
+		_ = d.Close(closeCtx)
+	}()
+	server := httptest.NewServer(api.Handler(d, nil))
+	defer server.Close()
+	c := &client{t: t, base: server.URL, http: server.Client()}
+
+	manifest := testManifest(stub.URL + "/v1")
+	manifest.Syscalls = append(manifest.Syscalls, extra...)
+	var session aurora.SessionSnapshot
+	c.do(http.MethodPost, "/v1/sessions", map[string]any{}, &session)
+	var process aurora.ProcessSnapshot
+	c.do(http.MethodPost, "/v1/sessions/"+session.ID+"/processes", map[string]any{
+		"input":    "do the task",
+		"manifest": manifest,
+	}, &process)
+	deadline := time.Now().Add(60 * time.Second)
+	for process.Status != aurora.ProcessCompleted && process.Status != aurora.ProcessFailed {
+		if time.Now().After(deadline) {
+			t.Fatalf("timed out in %s", process.Status)
+		}
+		time.Sleep(50 * time.Millisecond)
+		c.do(http.MethodGet, "/v1/processes/"+process.ID, nil, &process)
+	}
+	return process
+}
+
+// chatReply writes an OpenAI-style chat completion with content as the reply.
+func chatReply(w http.ResponseWriter, content string) {
+	payload, _ := json.Marshal(map[string]any{
+		"choices": []any{map[string]any{"message": map[string]any{"content": content}}},
+	})
+	w.Header().Set("Content-Type", "application/json")
+	_, _ = w.Write(payload)
+}
+
+// A request for a tool the run does not have goes back to the model as a failed
+// observation, and the model can correct itself: the process does not fail.
+func TestAgentReportsAnUnknownTool(t *testing.T) {
+	process := runAgent(t, func(w http.ResponseWriter, r *http.Request) {
+		body, _ := io.ReadAll(r.Body)
+		if bytes.Contains(body, []byte("unknown tool")) {
+			chatReply(w, `{"actions":[{"action":"final","content":{"answer":"corrected"}}]}`)
+			return
+		}
+		chatReply(w, `{"actions":[{"action":"missing.tool","content":{}}]}`)
+	})
+	if process.Status != aurora.ProcessCompleted || process.Answer != "corrected" {
+		t.Fatalf("process = %s %q (%s), want completed with the corrected answer", process.Status, process.Answer, process.Error)
+	}
+}
+
+// The model opens a section with sys.begin and abandons it with sys.abort: the
+// run goes back to the section's start, the model decides again, and the
+// process finishes in the forked revision.
+func TestAgentSectionAbortRunsTheSectionAgain(t *testing.T) {
+	var decisions atomic.Int32
+	process := runAgent(t, func(w http.ResponseWriter, r *http.Request) {
+		body, _ := io.ReadAll(r.Body)
+		// The prompt names sys.begin too, so look for its observation.
+		if !bytes.Contains(body, []byte(`\"action\":\"sys.begin\",\"status\":\"result\"`)) {
+			chatReply(w, `{"actions":[{"action":"sys.begin","content":{}}]}`)
+			return
+		}
+		// Inside the section: abandon it once, then finish.
+		if decisions.Add(1) == 1 {
+			chatReply(w, `{"actions":[{"action":"sys.abort","content":{"reason":"try another way"}}]}`)
+			return
+		}
+		chatReply(w, `{"actions":[{"action":"final","content":{"answer":"second try"}}]}`)
+	})
+	if process.Status != aurora.ProcessCompleted || process.Answer != "second try" {
+		t.Fatalf("process = %s %q (%s), want completed by the second try", process.Status, process.Answer, process.Error)
+	}
+	if process.Revision != 2 {
+		t.Fatalf("revision = %d, want 2: the abort forks the section", process.Revision)
+	}
+}
