@@ -173,9 +173,8 @@ type createProcessRequest struct {
 	// schema accepts (string-first: plain text, or a JSON document).
 	Input string `json:"input"`
 	// Manifest arrives per-process from the client — there is deliberately no
-	// manifest entity in the core. Omitted means an empty composition (no
-	// tools) at the current manifest version.
-	Manifest *aurora.Manifest `json:"manifest,omitempty"`
+	// manifest entity in the core. It names the program, so it is required.
+	Manifest *aurora.Manifest `json:"manifest"`
 }
 
 func (h *handler) createProcess(w http.ResponseWriter, r *http.Request) {
@@ -183,11 +182,11 @@ func (h *handler) createProcess(w http.ResponseWriter, r *http.Request) {
 	if !readJSON(w, r, &req) {
 		return
 	}
-	manifest := aurora.Manifest{Version: aurora.ManifestVersion}
-	if req.Manifest != nil {
-		manifest = *req.Manifest
+	if req.Manifest == nil {
+		writeError(w, fmt.Errorf("%w: a manifest is required", aurora.ErrInvalid))
+		return
 	}
-	snapshot, err := h.dist.Runtime.CreateProcess(r.PathValue("id"), req.Input, manifest)
+	snapshot, err := h.dist.Runtime.CreateProcess(r.PathValue("id"), req.Input, *req.Manifest)
 	writeJSON(w, snapshot, err)
 }
 
