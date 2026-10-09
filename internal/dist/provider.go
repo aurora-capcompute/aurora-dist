@@ -15,9 +15,6 @@ import (
 // policy: the compiled-in registrations decide which tool types exist,
 // services carry the deployment-scoped secret resolver and audit key, and the
 // scratch spaces give each build core.scratch over its own session's store.
-// There is no per-binding warmup here — manifests arrive per-process from the
-// single trusted client, already carrying their driver config; the policy
-// layer in front of multi-principal deployments is a separate service.
 type provider struct {
 	// registrations are the compiled-in drivers other than core.scratch, which
 	// is registered per build over the session's store.
@@ -30,10 +27,6 @@ type provider struct {
 // is bound to the session, so the driver built over it cannot reach another.
 type scratchSpaces interface {
 	ScratchSpace(session string) scratch.Store
-}
-
-func newProvider(registrations []registry.Registration, services registry.Services, spaces scratchSpaces) *provider {
-	return &provider{registrations: registrations, services: services, scratch: spaces}
 }
 
 // drivers is the registry for one build: the compiled-in drivers and

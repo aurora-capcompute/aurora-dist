@@ -38,14 +38,14 @@ func TestProviderInjectsCredentialEndToEnd(t *testing.T) {
 	}))
 	defer server.Close()
 
-	provider := newProvider(
-		[]registry.Registration{internet.Registration{}},
-		registry.Services{
+	provider := &provider{
+		registrations: []registry.Registration{internet.Registration{}},
+		services: registry.Services{
 			Secrets:  injectResolver{"ONYX_TOKEN": "tok-abc"},
 			AuditKey: []byte("audit-key"),
 		},
-		distmem.NewScratchSpaces(),
-	)
+		scratch: distmem.NewScratchSpaces(),
+	}
 	// The origin is the loopback test server (injection permits http only on
 	// loopback); the SSRF guard is opened for it with allow_private_network.
 	config := fmt.Sprintf(
@@ -97,11 +97,11 @@ func TestProviderInjectsCredentialEndToEnd(t *testing.T) {
 // A manifest that references a secret the host cannot resolve fails to build the
 // dispatcher — at activation — rather than dispatching without the credential.
 func TestProviderInjectionFailsClosedOnMissingSecret(t *testing.T) {
-	provider := newProvider(
-		[]registry.Registration{internet.Registration{}},
-		registry.Services{Secrets: injectResolver{}},
-		distmem.NewScratchSpaces(),
-	)
+	provider := &provider{
+		registrations: []registry.Registration{internet.Registration{}},
+		services:      registry.Services{Secrets: injectResolver{}},
+		scratch:       distmem.NewScratchSpaces(),
+	}
 	manifest := aurora.Manifest{
 		Version: aurora.ManifestVersion,
 		Syscalls: []aurora.Syscall{

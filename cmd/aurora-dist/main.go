@@ -8,6 +8,7 @@
 package main
 
 import (
+	"cmp"
 	"context"
 	"encoding/json"
 	"errors"
@@ -86,13 +87,7 @@ func run() error {
 		}
 	}
 	pick := func(flagValue, fileValue, fallback string) string {
-		if strings.TrimSpace(flagValue) != "" {
-			return flagValue
-		}
-		if strings.TrimSpace(fileValue) != "" {
-			return fileValue
-		}
-		return fallback
+		return cmp.Or(strings.TrimSpace(flagValue), strings.TrimSpace(fileValue), fallback)
 	}
 
 	taskSecret, err := secretFromEnv("AURORA_TASK_SECRET")
@@ -113,13 +108,14 @@ func run() error {
 	ctx, cancel := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
 	defer cancel()
 
-	if dir := pick(*dataDir, cfg.DataDir, ""); dir != "" {
-		if err := os.MkdirAll(dir, 0o700); err != nil {
+	data := pick(*dataDir, cfg.DataDir, "")
+	if data != "" {
+		if err := os.MkdirAll(data, 0o700); err != nil {
 			return fmt.Errorf("create data directory: %w", err)
 		}
 	}
 	d, err := dist.New(ctx, dist.Config{
-		DataDir:                pick(*dataDir, cfg.DataDir, ""),
+		DataDir:                data,
 		ProgramsDir:            pick(*programsDir, cfg.Programs.Dir, ""),
 		TaskSecret:             taskSecret,
 		Secrets:                dist.NewEnvSecretResolver(),

@@ -1,7 +1,5 @@
 // Package api serves the distribution's HTTP API — the single way into the
-// runtime, versioned /v1 from birth (the resolution_token and session_id
-// renames were the cautionary tales). It is a thin projection of the runtime
-// surface.
+// runtime, versioned /v1. It is a thin projection of the runtime surface.
 //
 // There is no principal authentication here by design: the distribution
 // serves one trusted client (a local terminal, or the policy layer once
@@ -50,8 +48,8 @@ func Handler(d *dist.Dist, trustedHosts []string) http.Handler {
 	// Tasks.
 	mux.HandleFunc("POST /v1/tasks/{id}/resolve", h.resolveTask)
 
-	// Programs. Read-only: the loaded artifact set — the set itself is
-	// reconciled from the programs directory by the distribution's poller.
+	// Programs. Read-only: the artifact set loaded from the programs directory
+	// at boot.
 	mux.HandleFunc("GET /v1/programs", h.listPrograms)
 
 	mux.HandleFunc("GET /healthz", func(w http.ResponseWriter, _ *http.Request) {

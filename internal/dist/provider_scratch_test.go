@@ -8,7 +8,6 @@ import (
 
 	"github.com/aurora-capcompute/aurora-capcompute/aurora"
 	"github.com/aurora-capcompute/aurora-capcompute/capability"
-	"github.com/aurora-capcompute/aurora-dispatchers/registry"
 	"github.com/aurora-capcompute/aurora-dispatchers/scratch"
 	distmem "github.com/aurora-capcompute/aurora-dist/internal/dist/store/memory"
 	"github.com/aurora-capcompute/capcompute/sys"
@@ -18,7 +17,7 @@ import (
 // processes of one session share it, and a process of another session — with
 // the identical grant — sees none of it.
 func TestScratchSpaceFollowsTheCredentialsSession(t *testing.T) {
-	provider := newProvider(nil, registry.Services{}, distmem.NewScratchSpaces())
+	provider := &provider{scratch: distmem.NewScratchSpaces()}
 	manifest := aurora.Manifest{
 		Version: aurora.ManifestVersion,
 		Syscalls: []aurora.Syscall{

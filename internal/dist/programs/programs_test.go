@@ -1,7 +1,6 @@
 package programs
 
 import (
-	"context"
 	"os"
 	"path/filepath"
 	"strings"
@@ -24,14 +23,13 @@ func writeProgram(t *testing.T, dir, id string, wasm []byte) {
 		`{"description":"a program","input":{"type":"string"},"output":{"type":"string"}}`))
 }
 
-func TestDirListsWasmArtifacts(t *testing.T) {
+func TestLoadReadsWasmArtifacts(t *testing.T) {
 	dir := t.TempDir()
 	writeProgram(t, dir, "agent@1", []byte{0x00, 0x61, 0x73, 0x6d})
 	writeProgram(t, dir, "beta", []byte{0x00, 0x61, 0x73, 0x6d, 0x01})
 	writeFile(t, dir, "notes.txt", []byte("ignored"))
 
-	d := Dir{Path: dir}
-	programs, err := d.List(context.Background())
+	programs, err := Load(dir)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -48,21 +46,21 @@ func TestDirListsWasmArtifacts(t *testing.T) {
 
 // A wasm without its interface sidecar is refused: a program directory must
 // ship the manifest a caller reads to know what to pass.
-func TestDirRequiresInterfaceSidecar(t *testing.T) {
+func TestLoadRequiresInterfaceSidecar(t *testing.T) {
 	dir := t.TempDir()
 	writeFile(t, dir, "lonely.wasm", []byte{0x00, 0x61, 0x73, 0x6d})
-	if _, err := (Dir{Path: dir}).List(context.Background()); err == nil {
+	if _, err := Load(dir); err == nil {
 		t.Fatal("expected an error for a wasm with no <id>.json interface")
 	}
 }
 
 // A sidecar that is not valid JSON is refused here, at the loader that decodes
 // it — the runtime is handed a decoded interface and never sees the file.
-func TestDirRejectsMalformedInterfaceSidecar(t *testing.T) {
+func TestLoadRejectsMalformedInterfaceSidecar(t *testing.T) {
 	dir := t.TempDir()
 	writeFile(t, dir, "broken.wasm", []byte{0x00, 0x61, 0x73, 0x6d})
 	writeFile(t, dir, "broken.json", []byte("not json"))
-	_, err := (Dir{Path: dir}).List(context.Background())
+	_, err := Load(dir)
 	if err == nil {
 		t.Fatal("expected an error for a malformed <id>.json interface")
 	}
@@ -71,9 +69,8 @@ func TestDirRejectsMalformedInterfaceSidecar(t *testing.T) {
 	}
 }
 
-func TestDirToleratesMissingDirectory(t *testing.T) {
-	d := Dir{Path: filepath.Join(t.TempDir(), "absent")}
-	programs, err := d.List(context.Background())
+func TestLoadToleratesMissingDirectory(t *testing.T) {
+	programs, err := Load(filepath.Join(t.TempDir(), "absent"))
 	if err != nil || programs != nil {
 		t.Fatalf("list = %v, %v", programs, err)
 	}

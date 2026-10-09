@@ -1,11 +1,13 @@
 // Package memory provides in-memory implementations of the distribution's
-// stores: an append-only event log and the sessions' scratch spaces. They suit tests and throwaway runs; durable persistence lives in the
-// sibling sqlite package.
+// stores: an append-only event log and the sessions' scratch spaces. They suit
+// tests and throwaway runs. Durable persistence lives in the sibling sqlite
+// package.
 package memory
 
 import (
 	"context"
-	"sort"
+	"maps"
+	"slices"
 	"sync"
 
 	"github.com/aurora-capcompute/aurora-capcompute/aurora"
@@ -27,46 +29,24 @@ func NewEventLog() *EventLog {
 func (m *EventLog) Append(_ context.Context, sessionID string, events ...aurora.LogEvent) (uint64, error) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
-	existing := m.streams[sessionID]
-	head := uint64(len(existing))
-	if len(events) == 0 {
-		return head, nil
+	for _, ev := range events {
+		ev.Seq = uint64(len(m.streams[sessionID])) + 1
+		m.streams[sessionID] = append(m.streams[sessionID], ev)
 	}
-	appended := make([]aurora.LogEvent, len(events))
-	for i, ev := range events {
-		head++
-		ev.Seq = head
-		ev.Data = append([]byte(nil), ev.Data...)
-		appended[i] = ev
-	}
-	m.streams[sessionID] = append(existing, appended...)
-	return head, nil
+	return uint64(len(m.streams[sessionID])), nil
 }
 
 func (m *EventLog) Read(_ context.Context, sessionID string, after uint64) ([]aurora.LogEvent, error) {
 	m.mu.RLock()
 	defer m.mu.RUnlock()
 	stream := m.streams[sessionID]
-	if after >= uint64(len(stream)) {
-		return nil, nil
-	}
-	out := make([]aurora.LogEvent, 0, uint64(len(stream))-after)
-	for _, ev := range stream[after:] {
-		ev.Data = append([]byte(nil), ev.Data...)
-		out = append(out, ev)
-	}
-	return out, nil
+	return slices.Clone(stream[min(after, uint64(len(stream))):]), nil
 }
 
+// Sessions lists the sessions that have events: a stream exists only once an
+// event is appended to it.
 func (m *EventLog) Sessions(context.Context) ([]string, error) {
 	m.mu.RLock()
 	defer m.mu.RUnlock()
-	var out []string
-	for sessionID, stream := range m.streams {
-		if len(stream) > 0 {
-			out = append(out, sessionID)
-		}
-	}
-	sort.Strings(out)
-	return out, nil
+	return slices.Sorted(maps.Keys(m.streams)), nil
 }

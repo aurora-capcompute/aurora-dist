@@ -1,12 +1,12 @@
 // Package sqlite is the distribution's durable store: an append-only event log
-// (one ordered stream per session) and each session's core.scratch space. The runtime folds the
-// log into session/process/task projections; there is no per-entity row store.
+// (one ordered stream per session) and each session's core.scratch space. The
+// runtime folds the log into session, process and task projections. There is
+// no per-entity row store.
 package sqlite
 
 import (
 	"context"
 	"database/sql"
-	"encoding/json"
 	"time"
 
 	"github.com/aurora-capcompute/aurora-capcompute/aurora"
@@ -108,10 +108,9 @@ func (s *Store) Read(ctx context.Context, sessionID string, after uint64) ([]aur
 		if err := rows.Scan(&ev.Seq, &ev.Kind, &occurredAt, &ev.Proc, &ev.Rev, &data); err != nil {
 			return nil, err
 		}
-		if t, perr := time.Parse(time.RFC3339Nano, occurredAt); perr == nil {
-			ev.Time = t
-		}
-		ev.Data = append(json.RawMessage(nil), data...)
+		// Append wrote the time in this format.
+		ev.Time, _ = time.Parse(time.RFC3339Nano, occurredAt)
+		ev.Data = data
 		out = append(out, ev)
 	}
 	return out, rows.Err()

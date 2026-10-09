@@ -34,14 +34,14 @@ func TestProviderTemplateEndToEnd(t *testing.T) {
 	}))
 	defer server.Close()
 
-	provider := newProvider(
-		[]registry.Registration{httptemplate.Registration{}},
-		registry.Services{
+	provider := &provider{
+		registrations: []registry.Registration{httptemplate.Registration{}},
+		services: registry.Services{
 			Secrets:  injectResolver{"ONYX_TOKEN": "tok-abc"},
 			AuditKey: []byte("audit-key"),
 		},
-		distmem.NewScratchSpaces(),
-	)
+		scratch: distmem.NewScratchSpaces(),
+	}
 	config := fmt.Sprintf(`{"base_url":%q,"allow_private_network":true,`+
 		`"capabilities":[{"operation":"search","method":"POST","path":"/api/search",`+
 		`"inject_headers":{"Authorization":{"secret":"ONYX_TOKEN","prefix":"Bearer "}},`+
@@ -87,11 +87,11 @@ func TestProviderTemplateEndToEnd(t *testing.T) {
 // A core.httpTemplate grant referencing a secret the host cannot resolve fails
 // to build the dispatcher — at activation — rather than dispatching without it.
 func TestProviderTemplateFailsClosedOnMissingSecret(t *testing.T) {
-	provider := newProvider(
-		[]registry.Registration{httptemplate.Registration{}},
-		registry.Services{Secrets: injectResolver{}},
-		distmem.NewScratchSpaces(),
-	)
+	provider := &provider{
+		registrations: []registry.Registration{httptemplate.Registration{}},
+		services:      registry.Services{Secrets: injectResolver{}},
+		scratch:       distmem.NewScratchSpaces(),
+	}
 	manifest := aurora.Manifest{
 		Version: aurora.ManifestVersion,
 		Syscalls: []aurora.Syscall{

@@ -16,12 +16,11 @@ import (
 	"time"
 
 	"github.com/aurora-capcompute/aurora-capcompute/aurora"
-	"github.com/aurora-capcompute/aurora-dispatchers/openaillm"
-	"github.com/aurora-capcompute/aurora-dispatchers/registry"
-
 	"github.com/aurora-capcompute/aurora-dispatchers/command"
 	"github.com/aurora-capcompute/aurora-dispatchers/httptemplate"
 	"github.com/aurora-capcompute/aurora-dispatchers/internet"
+	"github.com/aurora-capcompute/aurora-dispatchers/openaillm"
+	"github.com/aurora-capcompute/aurora-dispatchers/registry"
 	"github.com/aurora-capcompute/aurora-dist/internal/dist/programs"
 	"github.com/aurora-capcompute/aurora-dist/internal/dist/store/memory"
 	"github.com/aurora-capcompute/aurora-dist/internal/dist/store/sqlite"
@@ -74,7 +73,7 @@ func New(ctx context.Context, cfg Config) (*Dist, error) {
 	// The runtime reads no filesystem: the programs are read here and compiled
 	// by the runtime at boot, so a distribution that cannot load its programs
 	// fails to start rather than accepting work it cannot run.
-	listed, err := programs.Dir{Path: cfg.ProgramsDir}.List(ctx)
+	listed, err := programs.Load(cfg.ProgramsDir)
 	if err != nil {
 		return nil, err
 	}
@@ -96,15 +95,16 @@ func New(ctx context.Context, cfg Config) (*Dist, error) {
 		closers = append(closers, store)
 	}
 
-	provider := newProvider([]registry.Registration{
-		internet.Registration{},
-		httptemplate.Registration{},
-		command.Registration{},
-		openaillm.Registration{},
-	}, registry.Services{
-		Secrets:  cfg.Secrets,
-		AuditKey: cfg.AuditKey,
-	}, spaces)
+	provider := &provider{
+		registrations: []registry.Registration{
+			internet.Registration{},
+			httptemplate.Registration{},
+			command.Registration{},
+			openaillm.Registration{},
+		},
+		services: registry.Services{Secrets: cfg.Secrets, AuditKey: cfg.AuditKey},
+		scratch:  spaces,
+	}
 
 	runtime, err := aurora.NewRuntime(ctx, aurora.Config{
 		Dispatchers:            provider,
@@ -135,17 +135,14 @@ func New(ctx context.Context, cfg Config) (*Dist, error) {
 }
 
 // resumeInterrupted re-drives every process a host failure left mid-flight.
-// restore() marks processes that were running/queued/stopping at the crash as
+// Restore marks processes that were running, queued or stopping at the crash as
 // interrupted — an interruption is external (shutdown or a quantum deadline),
-// never a program failure (which finishes as ProcessFailed) — so
-// re-driving is safe: replay serves the committed journal prefix, and only a
-// call whose completion was never journaled runs again.
+// never a program failure (which finishes as ProcessFailed) — so re-driving is
+// safe: replay serves the committed journal prefix, and only a call whose
+// completion was never journaled runs again.
 func (d *Dist) resumeInterrupted() {
 	for _, summary := range d.Runtime.ListSessions() {
-		session, err := d.Runtime.GetSession(summary.ID)
-		if err != nil {
-			continue
-		}
+		session, _ := d.Runtime.GetSession(summary.ID)
 		for _, process := range session.Processes {
 			if process.Status != aurora.ProcessInterrupted {
 				continue
@@ -163,9 +160,6 @@ func (d *Dist) Close(ctx context.Context) error {
 	errs := []error{d.Runtime.Close(ctx)}
 	for _, closer := range d.closers {
 		errs = append(errs, closer.Close())
-	}
-	if ctx.Err() != nil {
-		errs = append(errs, ctx.Err())
 	}
 	return errors.Join(errs...)
 }
