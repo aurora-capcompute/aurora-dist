@@ -1276,12 +1276,19 @@ func TestCompactionKeepsTheInput(t *testing.T) {
 }
 
 // runAgent runs one agent process against a stub LLM, with the LLM grant and
-// the extra grants given, and returns the process when it ends.
-func runAgent(t *testing.T, llm http.HandlerFunc, extra ...aurora.Syscall) aurora.ProcessSnapshot {
+// the extra grants given, and returns the process when it ends. output is the
+// program's output schema; empty means a plain string.
+func runAgent(t *testing.T, output string, llm http.HandlerFunc, extra ...aurora.Syscall) aurora.ProcessSnapshot {
 	t.Helper()
 	wasm := buildProgram(t)
 	programsDir := t.TempDir()
 	writeProgramDir(t, programsDir, wasm)
+	if output != "" {
+		iface := `{"description":"the agent","input":{"type":"string"},"output":` + output + `}`
+		if err := os.WriteFile(filepath.Join(programsDir, "agent.json"), []byte(iface), 0o600); err != nil {
+			t.Fatal(err)
+		}
+	}
 	stub := httptest.NewServer(llm)
 	defer stub.Close()
 
@@ -1337,7 +1344,7 @@ func chatReply(w http.ResponseWriter, content string) {
 // A request for a tool the run does not have goes back to the model as a failed
 // observation, and the model can correct itself: the process does not fail.
 func TestAgentReportsAnUnknownTool(t *testing.T) {
-	process := runAgent(t, func(w http.ResponseWriter, r *http.Request) {
+	process := runAgent(t, "", func(w http.ResponseWriter, r *http.Request) {
 		body, _ := io.ReadAll(r.Body)
 		if bytes.Contains(body, []byte("unknown tool")) {
 			chatReply(w, `{"actions":[{"action":"final","content":{"answer":"corrected"}}]}`)
@@ -1355,7 +1362,7 @@ func TestAgentReportsAnUnknownTool(t *testing.T) {
 // process finishes in the forked revision.
 func TestAgentSectionAbortRunsTheSectionAgain(t *testing.T) {
 	var decisions atomic.Int32
-	process := runAgent(t, func(w http.ResponseWriter, r *http.Request) {
+	process := runAgent(t, "", func(w http.ResponseWriter, r *http.Request) {
 		body, _ := io.ReadAll(r.Body)
 		// The prompt names sys.begin too, so look for its observation.
 		if !bytes.Contains(body, []byte(`\"action\":\"sys.begin\",\"status\":\"result\"`)) {
@@ -1374,5 +1381,22 @@ func TestAgentSectionAbortRunsTheSectionAgain(t *testing.T) {
 	}
 	if process.Revision != 2 {
 		t.Fatalf("revision = %d, want 2: the abort forks the section", process.Revision)
+	}
+}
+
+// An answer that does not fit the program's output schema goes back to the
+// model with the reason, and the model answers again: the process does not
+// fail.
+func TestAgentCorrectsARejectedAnswer(t *testing.T) {
+	process := runAgent(t, `{"type":"object","required":["status"]}`, func(w http.ResponseWriter, r *http.Request) {
+		body, _ := io.ReadAll(r.Body)
+		if bytes.Contains(body, []byte("not accepted")) {
+			chatReply(w, `{"actions":[{"action":"final","content":{"answer":"{\"status\":\"ok\"}"}}]}`)
+			return
+		}
+		chatReply(w, `{"actions":[{"action":"final","content":{"answer":"all good"}}]}`)
+	})
+	if process.Status != aurora.ProcessCompleted || process.Answer != `{"status":"ok"}` {
+		t.Fatalf("process = %s %q (%s), want completed with the corrected answer", process.Status, process.Answer, process.Error)
 	}
 }
