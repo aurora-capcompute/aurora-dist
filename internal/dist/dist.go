@@ -1,7 +1,7 @@
 // Package dist assembles the Aurora distribution: the aurora-capcompute runtime
 // with a fixed driver set (internet, scratch, httptemplate, command, openaillm),
-// a store (in memory, or SQLite), and the programs directory loaded at boot.
-// The api package serves it over HTTP.
+// a store (in memory, or SQLite), the programs directory loaded at boot, and
+// the one manifest every process gets. The api package serves it over HTTP.
 package dist
 
 import (
@@ -11,6 +11,7 @@ import (
 	"io"
 	"log/slog"
 	"path/filepath"
+	"slices"
 	"strings"
 	"time"
 
@@ -30,10 +31,10 @@ type Config struct {
 	// DataDir holds the SQLite database (<DataDir>/aurora.db). Empty runs on
 	// in-memory stores — nothing survives a restart.
 	DataDir string
-	// ProgramsDir holds the *.wasm program artifacts, loaded once at boot. There
-	// is no default program: every create-process request names the program it
-	// runs.
+	// ProgramsDir holds the *.wasm program artifacts, loaded once at boot.
 	ProgramsDir string
+	// Manifest is the grant set of every process. Required.
+	Manifest aurora.Manifest
 	// TaskSecret derives task resolution tokens. Required.
 	TaskSecret []byte
 	// Secrets resolves manifest secret references (an injected Authorization
@@ -55,7 +56,8 @@ type Config struct {
 
 // Dist is a running distribution: the runtime plus its compiled-in services.
 type Dist struct {
-	Runtime aurora.Runtime
+	Runtime  aurora.Runtime
+	Manifest aurora.Manifest
 
 	closers []io.Closer
 	logger  *slog.Logger
@@ -77,6 +79,20 @@ func New(ctx context.Context, cfg Config) (*Dist, error) {
 		return nil, err
 	}
 
+	provider := &provider{
+		registrations: []registry.Registration{
+			internet.Registration{},
+			httptemplate.Registration{},
+			command.Registration{},
+			openaillm.Registration{},
+		},
+		services: registry.Services{Secrets: cfg.Secrets, AuditKey: cfg.AuditKey},
+	}
+	manifest, err := validateManifest(cfg.Manifest, listed, provider)
+	if err != nil {
+		return nil, err
+	}
+
 	var (
 		log     aurora.EventLog
 		spaces  scratchSpaces
@@ -93,17 +109,7 @@ func New(ctx context.Context, cfg Config) (*Dist, error) {
 		log, spaces = store, store
 		closers = append(closers, store)
 	}
-
-	provider := &provider{
-		registrations: []registry.Registration{
-			internet.Registration{},
-			httptemplate.Registration{},
-			command.Registration{},
-			openaillm.Registration{},
-		},
-		services: registry.Services{Secrets: cfg.Secrets, AuditKey: cfg.AuditKey},
-		scratch:  spaces,
-	}
+	provider.scratch = spaces
 
 	runtime, err := aurora.NewRuntime(ctx, aurora.Config{
 		Dispatchers:            provider,
@@ -121,9 +127,10 @@ func New(ctx context.Context, cfg Config) (*Dist, error) {
 	}
 
 	d := &Dist{
-		Runtime: runtime,
-		closers: closers,
-		logger:  logger,
+		Runtime:  runtime,
+		Manifest: manifest,
+		closers:  closers,
+		logger:   logger,
 	}
 	// A host restart is not a process failure: re-drive everything the crash
 	// left mid-flight so recovery needs no human. Parked processes (a timer, an
@@ -131,6 +138,17 @@ func New(ctx context.Context, cfg Config) (*Dist, error) {
 	// ones need the kick.
 	d.resumeInterrupted()
 	return d, nil
+}
+
+func validateManifest(spec aurora.Manifest, listed []aurora.ProgramData, provider *provider) (aurora.Manifest, error) {
+	manifest, err := aurora.ValidateManifest(spec, provider)
+	if err != nil {
+		return aurora.Manifest{}, fmt.Errorf("manifest: %w", err)
+	}
+	if !slices.ContainsFunc(listed, func(p aurora.ProgramData) bool { return string(p.ID) == manifest.Program }) {
+		return aurora.Manifest{}, fmt.Errorf("manifest: program %q is not in the programs directory", manifest.Program)
+	}
+	return manifest, nil
 }
 
 // resumeInterrupted re-drives every process a host failure left mid-flight.

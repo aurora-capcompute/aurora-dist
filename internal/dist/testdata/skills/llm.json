@@ -1,0 +1,12 @@
+{
+  "description": "The model",
+  "syscalls": [
+    {
+      "syscall": "core.openaiApi", "hidden": true,
+      "base_url": "https://api.openai.com/v1",
+      "api_key": {"secret": "OPENAI_KEY"},
+      "default_model": "gpt-4o",
+      "capabilities": [{"operation": "chat"}]
+    }
+  ]
+}

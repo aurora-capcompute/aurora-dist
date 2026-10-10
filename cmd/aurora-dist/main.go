@@ -1,7 +1,7 @@
 // aurora-dist is the Aurora distribution: one binary assembling the runtime
 // with a compiled-in driver set and stores, exposed over one HTTP API.
 //
-//	aurora-dist -addr :8080 -data ./data -programs ./programs [-config dist.json]
+//	aurora-dist -addr :8080 -data ./data -programs ./programs -skills ./skills [-config dist.json]
 //
 // The task secret comes from AURORA_TASK_SECRET (or AURORA_TASK_SECRET_FILE);
 // everything else from flags or the optional JSON config file (flags win).
@@ -22,8 +22,10 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/aurora-capcompute/aurora-capcompute/aurora"
 	"github.com/aurora-capcompute/aurora-dist/internal/dist"
 	"github.com/aurora-capcompute/aurora-dist/internal/dist/api"
+	"github.com/aurora-capcompute/aurora-dist/internal/dist/skills"
 )
 
 var version = "dev"
@@ -38,6 +40,8 @@ const minTaskSecretBytes = 16
 // An operator who fronts it with auth/network isolation sets -addr explicitly.
 const defaultAddr = "127.0.0.1:8080"
 
+const defaultProgram = "agent"
+
 // fileConfig is the optional JSON config file. Flags override its fields.
 type fileConfig struct {
 	Addr     string `json:"addr,omitempty"`
@@ -45,6 +49,10 @@ type fileConfig struct {
 	Programs struct {
 		Dir string `json:"dir,omitempty"`
 	} `json:"programs"`
+	Skills struct {
+		Dir     string `json:"dir,omitempty"`
+		Program string `json:"program,omitempty"`
+	} `json:"skills"`
 	MaxConcurrent          int `json:"max_concurrent_processes,omitempty"`
 	QuantumDeadlineSeconds int `json:"quantum_deadline_seconds,omitempty"`
 	// TrustedHosts are host names the API accepts besides localhost and IP
@@ -65,6 +73,8 @@ func run() error {
 		addr        = flag.String("addr", "", "listen address (default "+defaultAddr+")")
 		dataDir     = flag.String("data", "", "data directory for the SQLite store (empty = in-memory)")
 		programsDir = flag.String("programs", "", "directory of *.wasm program artifacts")
+		skillsDir   = flag.String("skills", "", "directory of *.json skills, merged into the manifest of every process")
+		program     = flag.String("program", "", "the program every process runs (default "+defaultProgram+")")
 		showVersion = flag.Bool("version", false, "print version and exit")
 	)
 	flag.Parse()
@@ -105,6 +115,11 @@ func run() error {
 		return err
 	}
 
+	manifest, err := loadManifest(pick(*skillsDir, cfg.Skills.Dir, ""), pick(*program, cfg.Skills.Program, defaultProgram), logger)
+	if err != nil {
+		return err
+	}
+
 	ctx, cancel := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
 	defer cancel()
 
@@ -117,6 +132,7 @@ func run() error {
 	d, err := dist.New(ctx, dist.Config{
 		DataDir:                data,
 		ProgramsDir:            pick(*programsDir, cfg.Programs.Dir, ""),
+		Manifest:               manifest,
 		TaskSecret:             taskSecret,
 		Secrets:                dist.NewEnvSecretResolver(),
 		AuditKey:               auditKey,
@@ -156,6 +172,27 @@ func run() error {
 	defer shutdownCancel()
 	_ = server.Shutdown(shutdownCtx)
 	return nil
+}
+
+func loadManifest(dir, program string, logger *slog.Logger) (aurora.Manifest, error) {
+	if dir == "" {
+		return aurora.Manifest{}, errors.New("a skills directory is required (-skills or skills.dir)")
+	}
+	loaded, err := skills.Load(dir)
+	if err != nil {
+		return aurora.Manifest{}, err
+	}
+	if len(loaded) == 0 {
+		return aurora.Manifest{}, fmt.Errorf("skills directory %s holds no skills", dir)
+	}
+	for _, skill := range loaded {
+		logger.Info("skill loaded", "skill", skill.Name, "description", skill.Description, "grants", len(skill.Syscalls))
+	}
+	manifest, err := skills.Merge(program, loaded)
+	if err != nil {
+		return aurora.Manifest{}, fmt.Errorf("merge skills: %w", err)
+	}
+	return manifest, nil
 }
 
 // lookupSecretFromEnv reads NAME, or the file NAME_FILE points at, reporting

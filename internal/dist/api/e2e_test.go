@@ -124,13 +124,18 @@ func testManifest(llmBaseURL string) aurora.Manifest {
 			{"operation": "chat", "require_approval": false},
 		},
 	})
+	// No sys.timer grant: the nap tests run on the default timer.
 	return aurora.Manifest{
 		Version: aurora.ManifestVersion,
 		Program: "agent",
 		Syscalls: []aurora.Syscall{
-			{Syscall: "sys.timer"},
 			{Syscall: "core.openaiApi", Config: config, Hidden: true},
 		},
+		Skills: []aurora.Skill{{
+			Name:         "duty",
+			Description:  "answer duty requests",
+			Instructions: "Name the service you checked in every answer.",
+		}},
 	}
 }
 
@@ -182,6 +187,7 @@ func TestDistributionEndToEnd(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 	d, err := dist.New(ctx, dist.Config{
+		Manifest:    testManifest(llm.URL + "/v1"),
 		Secrets:     e2eSecrets,
 		DataDir:     "", // in-memory
 		ProgramsDir: programsDir,
@@ -227,10 +233,20 @@ func TestDistributionEndToEnd(t *testing.T) {
 		t.Fatalf("session id = %q", session.ID)
 	}
 	sessionID := session.ID
+
+	refused, err := server.Client().Post(server.URL+"/v1/sessions/"+sessionID+"/processes", "application/json",
+		strings.NewReader(`{"input":"hi","manifest":{"version":4,"program":"agent","syscalls":[{"syscall":"sys.timer"}]}}`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	refused.Body.Close()
+	if refused.StatusCode != http.StatusBadRequest {
+		t.Fatalf("create process with a client manifest = %d, want 400", refused.StatusCode)
+	}
+
 	var process aurora.ProcessSnapshot
 	c.do(http.MethodPost, "/v1/sessions/"+sessionID+"/processes", map[string]any{
-		"input":    "take a nap, then report back",
-		"manifest": testManifest(llm.URL + "/v1"),
+		"input": "take a nap, then report back",
 	}, &process)
 	if !strings.HasPrefix(process.ID, "proc_") || process.SessionID != sessionID {
 		t.Fatalf("process = %+v", process)
@@ -316,6 +332,7 @@ func TestDistributionRestartRecoversTimers(t *testing.T) {
 	defer llm.Close()
 
 	config := dist.Config{
+		Manifest:    testManifest(llm.URL + "/v1"),
 		Secrets:     e2eSecrets,
 		DataDir:     dataDir,
 		ProgramsDir: programsDir,
@@ -334,8 +351,7 @@ func TestDistributionRestartRecoversTimers(t *testing.T) {
 	sessionID := session.ID
 	var process aurora.ProcessSnapshot
 	c.do(http.MethodPost, "/v1/sessions/"+sessionID+"/processes", map[string]any{
-		"input":    "take a nap, then report back",
-		"manifest": testManifest(llm.URL + "/v1"),
+		"input": "take a nap, then report back",
 	}, &process)
 
 	// Wait for the park on the timer task, then shut the first instance down
@@ -427,6 +443,7 @@ func TestDistributionResumesInterruptedProcess(t *testing.T) {
 	defer llm.Close()
 
 	config := dist.Config{
+		Manifest:    testManifest(llm.URL + "/v1"),
 		Secrets:     e2eSecrets,
 		DataDir:     dataDir,
 		ProgramsDir: programsDir,
@@ -445,8 +462,7 @@ func TestDistributionResumesInterruptedProcess(t *testing.T) {
 	c.do(http.MethodPost, "/v1/sessions", nil, &session)
 	var process aurora.ProcessSnapshot
 	c.do(http.MethodPost, "/v1/sessions/"+session.ID+"/processes", map[string]any{
-		"input":    "do the thing",
-		"manifest": testManifest(llm.URL + "/v1"),
+		"input": "do the thing",
 	}, &process)
 
 	// Catch the process actively running (blocked in the model call).
@@ -530,25 +546,6 @@ func TestAgentLoopIsCapped(t *testing.T) {
 
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
-	d, err := dist.New(ctx, dist.Config{
-		Secrets:     e2eSecrets,
-		ProgramsDir: programsDir,
-		TaskSecret:  []byte("e2e-secret"),
-		Logger:      slog.New(slog.NewTextHandler(io.Discard, nil)),
-	})
-	if err != nil {
-		t.Fatalf("assemble distribution: %v", err)
-	}
-	defer func() {
-		closeCtx, closeCancel := context.WithTimeout(context.Background(), 15*time.Second)
-		defer closeCancel()
-		_ = d.Close(closeCtx)
-	}()
-
-	server := httptest.NewServer(api.Handler(d, nil))
-	defer server.Close()
-	c := &client{t: t, base: server.URL, http: server.Client()}
-
 	llmConfig, _ := json.Marshal(map[string]any{
 		"base_url":            llm.URL + "/v1",
 		"api_key":             map[string]string{"secret": "OPENAI_KEY"},
@@ -568,12 +565,31 @@ func TestAgentLoopIsCapped(t *testing.T) {
 		},
 	}
 
+	d, err := dist.New(ctx, dist.Config{
+		Manifest:    manifest,
+		Secrets:     e2eSecrets,
+		ProgramsDir: programsDir,
+		TaskSecret:  []byte("e2e-secret"),
+		Logger:      slog.New(slog.NewTextHandler(io.Discard, nil)),
+	})
+	if err != nil {
+		t.Fatalf("assemble distribution: %v", err)
+	}
+	defer func() {
+		closeCtx, closeCancel := context.WithTimeout(context.Background(), 15*time.Second)
+		defer closeCancel()
+		_ = d.Close(closeCtx)
+	}()
+
+	server := httptest.NewServer(api.Handler(d, nil))
+	defer server.Close()
+	c := &client{t: t, base: server.URL, http: server.Client()}
+
 	var session aurora.SessionSnapshot
 	c.do(http.MethodPost, "/v1/sessions", map[string]any{}, &session)
 	var process aurora.ProcessSnapshot
 	c.do(http.MethodPost, "/v1/sessions/"+session.ID+"/processes", map[string]any{
-		"input":    "keep going forever",
-		"manifest": manifest,
+		"input": "keep going forever",
 	}, &process)
 
 	deadline := time.Now().Add(60 * time.Second)
@@ -623,7 +639,23 @@ func TestAgentSalvagesProseReply(t *testing.T) {
 
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
+	llmConfig, _ := json.Marshal(map[string]any{
+		"base_url":            llm.URL + "/v1",
+		"api_key":             map[string]string{"secret": "OPENAI_KEY"},
+		"allow_insecure_http": true,
+		"default_model":       "stub-model",
+		"capabilities":        []map[string]any{{"operation": "chat", "require_approval": false}},
+	})
+	manifest := aurora.Manifest{
+		Version: aurora.ManifestVersion,
+		Program: "agent",
+		Syscalls: []aurora.Syscall{
+			{Syscall: "core.openaiApi", Config: llmConfig, Hidden: true},
+		},
+	}
+
 	d, err := dist.New(ctx, dist.Config{
+		Manifest:    manifest,
 		Secrets:     e2eSecrets,
 		ProgramsDir: programsDir,
 		TaskSecret:  []byte("e2e-secret"),
@@ -642,27 +674,11 @@ func TestAgentSalvagesProseReply(t *testing.T) {
 	defer server.Close()
 	c := &client{t: t, base: server.URL, http: server.Client()}
 
-	llmConfig, _ := json.Marshal(map[string]any{
-		"base_url":            llm.URL + "/v1",
-		"api_key":             map[string]string{"secret": "OPENAI_KEY"},
-		"allow_insecure_http": true,
-		"default_model":       "stub-model",
-		"capabilities":        []map[string]any{{"operation": "chat", "require_approval": false}},
-	})
-	manifest := aurora.Manifest{
-		Version: aurora.ManifestVersion,
-		Program: "agent",
-		Syscalls: []aurora.Syscall{
-			{Syscall: "core.openaiApi", Config: llmConfig, Hidden: true},
-		},
-	}
-
 	var session aurora.SessionSnapshot
 	c.do(http.MethodPost, "/v1/sessions", map[string]any{}, &session)
 	var process aurora.ProcessSnapshot
 	c.do(http.MethodPost, "/v1/sessions/"+session.ID+"/processes", map[string]any{
-		"input":    "is warp a good terminal emulator?",
-		"manifest": manifest,
+		"input": "is warp a good terminal emulator?",
 	}, &process)
 
 	deadline := time.Now().Add(60 * time.Second)
@@ -746,25 +762,6 @@ func TestAgentSavesLargeResultAndSummarizesItApart(t *testing.T) {
 
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
-	d, err := dist.New(ctx, dist.Config{
-		Secrets:     e2eSecrets,
-		ProgramsDir: programsDir,
-		TaskSecret:  []byte("e2e-secret"),
-		Logger:      slog.New(slog.NewTextHandler(io.Discard, nil)),
-	})
-	if err != nil {
-		t.Fatalf("assemble distribution: %v", err)
-	}
-	defer func() {
-		closeCtx, closeCancel := context.WithTimeout(context.Background(), 15*time.Second)
-		defer closeCancel()
-		_ = d.Close(closeCtx)
-	}()
-
-	server := httptest.NewServer(api.Handler(d, nil))
-	defer server.Close()
-	c := &client{t: t, base: server.URL, http: server.Client()}
-
 	llmConfig, _ := json.Marshal(map[string]any{
 		"base_url":            llm.URL + "/v1",
 		"api_key":             map[string]string{"secret": "OPENAI_KEY"},
@@ -796,12 +793,31 @@ func TestAgentSavesLargeResultAndSummarizesItApart(t *testing.T) {
 		},
 	}
 
+	d, err := dist.New(ctx, dist.Config{
+		Manifest:    manifest,
+		Secrets:     e2eSecrets,
+		ProgramsDir: programsDir,
+		TaskSecret:  []byte("e2e-secret"),
+		Logger:      slog.New(slog.NewTextHandler(io.Discard, nil)),
+	})
+	if err != nil {
+		t.Fatalf("assemble distribution: %v", err)
+	}
+	defer func() {
+		closeCtx, closeCancel := context.WithTimeout(context.Background(), 15*time.Second)
+		defer closeCancel()
+		_ = d.Close(closeCtx)
+	}()
+
+	server := httptest.NewServer(api.Handler(d, nil))
+	defer server.Close()
+	c := &client{t: t, base: server.URL, http: server.Client()}
+
 	var session aurora.SessionSnapshot
 	c.do(http.MethodPost, "/v1/sessions", map[string]any{}, &session)
 	var process aurora.ProcessSnapshot
 	c.do(http.MethodPost, "/v1/sessions/"+session.ID+"/processes", map[string]any{
-		"input":    "research the page",
-		"manifest": manifest,
+		"input": "research the page",
 	}, &process)
 
 	deadline := time.Now().Add(60 * time.Second)
@@ -892,25 +908,6 @@ func TestScratchSurvivesAQuantumBoundary(t *testing.T) {
 
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
-	d, err := dist.New(ctx, dist.Config{
-		Secrets:     e2eSecrets,
-		ProgramsDir: programsDir,
-		TaskSecret:  []byte("e2e-secret"),
-		Logger:      slog.New(slog.NewTextHandler(io.Discard, nil)),
-	})
-	if err != nil {
-		t.Fatalf("assemble distribution: %v", err)
-	}
-	defer func() {
-		closeCtx, closeCancel := context.WithTimeout(context.Background(), 15*time.Second)
-		defer closeCancel()
-		_ = d.Close(closeCtx)
-	}()
-
-	server := httptest.NewServer(api.Handler(d, nil))
-	defer server.Close()
-	c := &client{t: t, base: server.URL, http: server.Client()}
-
 	llmConfig, _ := json.Marshal(map[string]any{
 		"base_url":            llm.URL + "/v1",
 		"api_key":             map[string]string{"secret": "OPENAI_KEY"},
@@ -938,12 +935,31 @@ func TestScratchSurvivesAQuantumBoundary(t *testing.T) {
 		},
 	}
 
+	d, err := dist.New(ctx, dist.Config{
+		Manifest:    manifest,
+		Secrets:     e2eSecrets,
+		ProgramsDir: programsDir,
+		TaskSecret:  []byte("e2e-secret"),
+		Logger:      slog.New(slog.NewTextHandler(io.Discard, nil)),
+	})
+	if err != nil {
+		t.Fatalf("assemble distribution: %v", err)
+	}
+	defer func() {
+		closeCtx, closeCancel := context.WithTimeout(context.Background(), 15*time.Second)
+		defer closeCancel()
+		_ = d.Close(closeCtx)
+	}()
+
+	server := httptest.NewServer(api.Handler(d, nil))
+	defer server.Close()
+	c := &client{t: t, base: server.URL, http: server.Client()}
+
 	var session aurora.SessionSnapshot
 	c.do(http.MethodPost, "/v1/sessions", map[string]any{}, &session)
 	var process aurora.ProcessSnapshot
 	c.do(http.MethodPost, "/v1/sessions/"+session.ID+"/processes", map[string]any{
-		"input":    "research the page",
-		"manifest": manifest,
+		"input": "research the page",
 	}, &process)
 
 	deadline := time.Now().Add(60 * time.Second)
@@ -1002,26 +1018,6 @@ func TestScratchHandsOffBetweenProcessesWithoutHistory(t *testing.T) {
 
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
-	d, err := dist.New(ctx, dist.Config{
-		Secrets:     e2eSecrets,
-		DataDir:     t.TempDir(), // SQLite: the session's scratch is durable
-		ProgramsDir: programsDir,
-		TaskSecret:  []byte("e2e-secret"),
-		Logger:      slog.New(slog.NewTextHandler(io.Discard, nil)),
-	})
-	if err != nil {
-		t.Fatalf("assemble distribution: %v", err)
-	}
-	defer func() {
-		closeCtx, closeCancel := context.WithTimeout(context.Background(), 15*time.Second)
-		defer closeCancel()
-		_ = d.Close(closeCtx)
-	}()
-
-	server := httptest.NewServer(api.Handler(d, nil))
-	defer server.Close()
-	c := &client{t: t, base: server.URL, http: server.Client()}
-
 	llmConfig, _ := json.Marshal(map[string]any{
 		"base_url":            llm.URL + "/v1",
 		"api_key":             map[string]string{"secret": "OPENAI_KEY"},
@@ -1043,14 +1039,34 @@ func TestScratchHandsOffBetweenProcessesWithoutHistory(t *testing.T) {
 		},
 	}
 
+	d, err := dist.New(ctx, dist.Config{
+		Manifest:    manifest,
+		Secrets:     e2eSecrets,
+		DataDir:     t.TempDir(), // SQLite: the session's scratch is durable
+		ProgramsDir: programsDir,
+		TaskSecret:  []byte("e2e-secret"),
+		Logger:      slog.New(slog.NewTextHandler(io.Discard, nil)),
+	})
+	if err != nil {
+		t.Fatalf("assemble distribution: %v", err)
+	}
+	defer func() {
+		closeCtx, closeCancel := context.WithTimeout(context.Background(), 15*time.Second)
+		defer closeCancel()
+		_ = d.Close(closeCtx)
+	}()
+
+	server := httptest.NewServer(api.Handler(d, nil))
+	defer server.Close()
+	c := &client{t: t, base: server.URL, http: server.Client()}
+
 	var session aurora.SessionSnapshot
 	c.do(http.MethodPost, "/v1/sessions", map[string]any{}, &session)
 	run := func(input string) {
 		t.Helper()
 		var process aurora.ProcessSnapshot
 		c.do(http.MethodPost, "/v1/sessions/"+session.ID+"/processes", map[string]any{
-			"input":    input,
-			"manifest": manifest,
+			"input": input,
 		}, &process)
 		deadline := time.Now().Add(60 * time.Second)
 		for process.Status != aurora.ProcessCompleted {
@@ -1101,7 +1117,24 @@ func TestAgentSheddingRecoversOversizedRequest(t *testing.T) {
 
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
+	llmConfig, _ := json.Marshal(map[string]any{
+		"base_url":            llm.URL + "/v1",
+		"api_key":             map[string]string{"secret": "OPENAI_KEY"},
+		"allow_insecure_http": true,
+		"default_model":       "stub-model",
+		"max_request_bytes":   8000,
+		"capabilities":        []map[string]any{{"operation": "chat", "require_approval": false}},
+	})
+	manifest := aurora.Manifest{
+		Version: aurora.ManifestVersion,
+		Program: "agent",
+		Syscalls: []aurora.Syscall{
+			{Syscall: "core.openaiApi", Config: llmConfig, Hidden: true},
+		},
+	}
+
 	d, err := dist.New(ctx, dist.Config{
+		Manifest:    manifest,
 		Secrets:     e2eSecrets,
 		ProgramsDir: programsDir,
 		TaskSecret:  []byte("e2e-secret"),
@@ -1122,28 +1155,12 @@ func TestAgentSheddingRecoversOversizedRequest(t *testing.T) {
 
 	// A tiny 8 KB request cap: the first chat request (system prompt + a ~36 KB
 	// input) far exceeds it, so the guest must shed to get under it.
-	llmConfig, _ := json.Marshal(map[string]any{
-		"base_url":            llm.URL + "/v1",
-		"api_key":             map[string]string{"secret": "OPENAI_KEY"},
-		"allow_insecure_http": true,
-		"default_model":       "stub-model",
-		"max_request_bytes":   8000,
-		"capabilities":        []map[string]any{{"operation": "chat", "require_approval": false}},
-	})
-	manifest := aurora.Manifest{
-		Version: aurora.ManifestVersion,
-		Program: "agent",
-		Syscalls: []aurora.Syscall{
-			{Syscall: "core.openaiApi", Config: llmConfig, Hidden: true},
-		},
-	}
 
 	var session aurora.SessionSnapshot
 	c.do(http.MethodPost, "/v1/sessions", map[string]any{}, &session)
 	var process aurora.ProcessSnapshot
 	c.do(http.MethodPost, "/v1/sessions/"+session.ID+"/processes", map[string]any{
-		"input":    strings.Repeat("flood ", 6000), // ~36 KB, dwarfing the 8 KB cap
-		"manifest": manifest,
+		"input": strings.Repeat("flood ", 6000), // ~36 KB, dwarfing the 8 KB cap
 	}, &process)
 
 	deadline := time.Now().Add(60 * time.Second)
@@ -1207,25 +1224,6 @@ func TestCompactionKeepsTheInput(t *testing.T) {
 
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
-	d, err := dist.New(ctx, dist.Config{
-		Secrets:     e2eSecrets,
-		ProgramsDir: programsDir,
-		TaskSecret:  []byte("e2e-secret"),
-		Logger:      slog.New(slog.NewTextHandler(io.Discard, nil)),
-	})
-	if err != nil {
-		t.Fatalf("assemble distribution: %v", err)
-	}
-	defer func() {
-		closeCtx, closeCancel := context.WithTimeout(context.Background(), 15*time.Second)
-		defer closeCancel()
-		_ = d.Close(closeCtx)
-	}()
-
-	server := httptest.NewServer(api.Handler(d, nil))
-	defer server.Close()
-	c := &client{t: t, base: server.URL, http: server.Client()}
-
 	llmConfig, _ := json.Marshal(map[string]any{
 		"base_url":            llm.URL + "/v1",
 		"api_key":             map[string]string{"secret": "OPENAI_KEY"},
@@ -1245,12 +1243,31 @@ func TestCompactionKeepsTheInput(t *testing.T) {
 		},
 	}
 
+	d, err := dist.New(ctx, dist.Config{
+		Manifest:    manifest,
+		Secrets:     e2eSecrets,
+		ProgramsDir: programsDir,
+		TaskSecret:  []byte("e2e-secret"),
+		Logger:      slog.New(slog.NewTextHandler(io.Discard, nil)),
+	})
+	if err != nil {
+		t.Fatalf("assemble distribution: %v", err)
+	}
+	defer func() {
+		closeCtx, closeCancel := context.WithTimeout(context.Background(), 15*time.Second)
+		defer closeCancel()
+		_ = d.Close(closeCtx)
+	}()
+
+	server := httptest.NewServer(api.Handler(d, nil))
+	defer server.Close()
+	c := &client{t: t, base: server.URL, http: server.Client()}
+
 	var session aurora.SessionSnapshot
 	c.do(http.MethodPost, "/v1/sessions", map[string]any{}, &session)
 	var process aurora.ProcessSnapshot
 	c.do(http.MethodPost, "/v1/sessions/"+session.ID+"/processes", map[string]any{
-		"input":    rule + ". List the notes until you are told to stop.",
-		"manifest": manifest,
+		"input": rule + ". List the notes until you are told to stop.",
 	}, &process)
 
 	deadline := time.Now().Add(60 * time.Second)
@@ -1294,7 +1311,11 @@ func runAgent(t *testing.T, output string, llm http.HandlerFunc, extra ...aurora
 
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
+	manifest := testManifest(stub.URL + "/v1")
+	manifest.Syscalls = append(manifest.Syscalls, extra...)
+
 	d, err := dist.New(ctx, dist.Config{
+		Manifest:    manifest,
 		Secrets:     e2eSecrets,
 		ProgramsDir: programsDir,
 		TaskSecret:  []byte("e2e-secret"),
@@ -1312,14 +1333,11 @@ func runAgent(t *testing.T, output string, llm http.HandlerFunc, extra ...aurora
 	defer server.Close()
 	c := &client{t: t, base: server.URL, http: server.Client()}
 
-	manifest := testManifest(stub.URL + "/v1")
-	manifest.Syscalls = append(manifest.Syscalls, extra...)
 	var session aurora.SessionSnapshot
 	c.do(http.MethodPost, "/v1/sessions", map[string]any{}, &session)
 	var process aurora.ProcessSnapshot
 	c.do(http.MethodPost, "/v1/sessions/"+session.ID+"/processes", map[string]any{
-		"input":    "do the task",
-		"manifest": manifest,
+		"input": "do the task",
 	}, &process)
 	deadline := time.Now().Add(60 * time.Second)
 	for process.Status != aurora.ProcessCompleted && process.Status != aurora.ProcessFailed {
@@ -1354,6 +1372,24 @@ func TestAgentReportsAnUnknownTool(t *testing.T) {
 	})
 	if process.Status != aurora.ProcessCompleted || process.Answer != "corrected" {
 		t.Fatalf("process = %s %q (%s), want completed with the corrected answer", process.Status, process.Answer, process.Error)
+	}
+}
+
+func TestSkillsAndSysToolsReachTheModel(t *testing.T) {
+	var prompt atomic.Value
+	process := runAgent(t, "", func(w http.ResponseWriter, r *http.Request) {
+		body, _ := io.ReadAll(r.Body)
+		prompt.Store(string(body))
+		chatReply(w, `{"actions":[{"action":"final","content":{"answer":"done"}}]}`)
+	})
+	if process.Status != aurora.ProcessCompleted {
+		t.Fatalf("process = %s (%s)", process.Status, process.Error)
+	}
+	seen, _ := prompt.Load().(string)
+	for _, want := range []string{"Skill: duty", "Name the service you checked in every answer.", "Name: sys.timer", "Name: sys.declassify"} {
+		if !strings.Contains(seen, want) {
+			t.Fatalf("the model's request lacks %q:\n%s", want, seen)
+		}
 	}
 }
 

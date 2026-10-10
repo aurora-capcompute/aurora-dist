@@ -6,7 +6,8 @@ runtime with:
 
 - a fixed set of **drivers**: `core.internet`, `core.httpTemplate`,
   `core.command`, `core.scratch`, `core.openaiApi`, plus the runtime's
-  `sys.timer` and `sys.declassify`.
+  `sys.*` family (`sys.timer`, `sys.declassify` and the rest), which every
+  process gets with no grant.
 - a **store**: in memory, or SQLite for durability.
 - its **programs**, read from a directory at boot.
 
@@ -36,13 +37,16 @@ talk to it.
 - **Programs.** Each `<name>.wasm` needs a `<name>.json` interface beside it.
   The server reads them once at boot. To change a program, restart. A process
   bound to the old program cannot resume under the new one.
+- **Skills.** Each `<name>.json` in the skills directory is a skill. The
+  server merges them at boot into the one manifest that every process gets.
+  To change a skill, restart. See [Skills](#skills).
 - **Crash recovery.** At boot the server runs again every process that a host
   failure interrupted. Replay serves recorded results. Only a call whose
   completion was not journaled runs again.
 - **Timers.** The runtime fires `sys.timer` with no client attached. A fire time
   is absolute, so a restart does not move it. A timer that came due during
   downtime fires at boot.
-- **Secrets.** A manifest names a secret. The value comes from
+- **Secrets.** A skill names a secret. The value comes from
   `AURORA_SECRET_<NAME>` and never enters the manifest, the journal or the
   guest.
 - **One read.** `GET /v1/sessions/{id}` returns the whole session. Clients
@@ -71,7 +75,7 @@ Requirements: Go 1.26 or later. For a real agent, a Rust toolchain with the
    go build ./cmd/aurora-dist
    export AURORA_TASK_SECRET=change-me-at-least-16-bytes
    export AURORA_SECRET_OPENAI_KEY=sk-...
-   ./aurora-dist -data ./data -programs ./programs
+   ./aurora-dist -data ./data -programs ./programs -skills ./skills
    curl http://127.0.0.1:8080/healthz       # ok
    curl http://127.0.0.1:8080/v1/programs   # the loaded programs and their schemas
    ```
@@ -81,16 +85,34 @@ Requirements: Go 1.26 or later. For a real agent, a Rust toolchain with the
    ```sh
    aurora mount http://127.0.0.1:8080
    aurora mkdir demo && aurora cd demo
-   export AURORA_MANIFEST=manifest.json
    aurora spawn "say hello"
    ```
 
-A minimal `manifest.json`:
+## Skills
+
+A **skill** is one `<name>.json` file in the skills directory:
+
+- `description`: what the skill is for.
+- `instructions`: how the model does the work with the skill's tools.
+- `syscalls`: the grants the skill needs. They have the same shape as the
+  grants of a manifest.
+
+At boot the server reads every skill and merges them into **one manifest**.
+Every process gets that manifest. The model sees each skill's name,
+description and instructions beside its tool menu. A client cannot send
+grants: the API refuses a create-process request that contains a manifest. To
+change what agents can do, change the skills and restart the server. A process
+keeps the manifest it started with, also after a restart.
+
+The runtime gives every process the `sys.*` family (`sys.timer`,
+`sys.declassify`, and the rest) with no grant. A skill may not grant a `sys.*`
+syscall.
+
+`skills/llm.json`:
 
 ```json
 {
-  "version": 4,
-  "program": "agent",
+  "description": "The model",
   "syscalls": [
     {
       "syscall": "core.openaiApi", "hidden": true,
@@ -98,13 +120,39 @@ A minimal `manifest.json`:
       "api_key": {"secret": "OPENAI_KEY"},
       "default_model": "gpt-4o",
       "capabilities": [{"operation": "chat"}]
-    },
-    {"syscall": "core.internet",
-     "capabilities": [{"methods": ["GET"], "domain": "status.example.com"}]},
-    {"syscall": "sys.timer"}
+    }
   ]
 }
 ```
+
+`skills/status.json`:
+
+```json
+{
+  "description": "Check whether a service is up",
+  "instructions": "Read https://status.example.com first. If it reports an incident, quote its title and start time. If the page does not load, wait one minute with sys.timer and try once more.",
+  "syscalls": [
+    {"syscall": "core.internet",
+     "capabilities": [{"methods": ["GET"], "domain": "status.example.com"}]}
+  ]
+}
+```
+
+The merge rules:
+
+- When two skills grant the same syscall, their `capabilities` lists are
+  joined, and exact duplicates are removed. All other keys of the grant
+  (`hidden` included) must be identical in both skills.
+- A skill grants each syscall only once, and never a `sys.*` syscall.
+- An unknown key in a skill file is an error.
+
+If a skill breaks a rule, or the drivers refuse the merged manifest, the server
+does not start. The log names each loaded skill.
+
+To convert another agent's skill (for example a `SKILL.md` with
+`allowed-tools`) into an Aurora skill, give an LLM agent the
+[`convert-to-aurora-skill`](.claude/skills/convert-to-aurora-skill/SKILL.md)
+skill. A human reviews each result before it goes into the skills directory.
 
 `api_key` is a reference, not the key. Every credential field works this way:
 `api_key`, `inject_headers`, and secret values in a command's `env`. The server
@@ -117,6 +165,8 @@ refuses an inline value such as `"api_key": "sk-..."`.
 | `-addr` | `127.0.0.1:8080` | Listen address |
 | `-data` | empty | SQLite data directory. Empty means in memory. |
 | `-programs` | empty | Directory of `<name>.wasm` + `<name>.json` |
+| `-skills` | | Directory of `<name>.json` skills. Required. |
+| `-program` | `agent` | The program that every process runs |
 | `-config` | | JSON config file |
 | `-version` | | Print the version and exit |
 
@@ -127,6 +177,7 @@ A flag overrides the config file. The config file:
   "addr": "127.0.0.1:8080",
   "data_dir": "./data",
   "programs": {"dir": "./programs"},
+  "skills": {"dir": "./skills", "program": "agent"},
   "max_concurrent_processes": 16,
   "quantum_deadline_seconds": 1800,
   "trusted_hosts": ["aurora-dist"]
@@ -172,7 +223,7 @@ binary does:
 | `POST /v1/sessions` | Create a session: `{name, tags}` |
 | `GET /v1/sessions/{id}` | The whole session: metadata, history, every process with its journal and tasks |
 | `POST /v1/sessions/{id}/rename` | Rename: `{name}` |
-| `POST /v1/sessions/{id}/processes` | Start a process: `{input, manifest}` |
+| `POST /v1/sessions/{id}/processes` | Start a process: `{input}`. The skills set its grants. A request with a `manifest` is refused. |
 | `GET /v1/processes/{id}` | One process's status |
 | `POST /v1/processes/{id}/stop` | Stop a process |
 | `POST /v1/processes/{id}/retry` | `{"mode":"resume"}` or `{"mode":"restart"}` |

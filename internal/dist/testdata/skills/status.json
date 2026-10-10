@@ -1,0 +1,8 @@
+{
+  "description": "Check whether a service is up",
+  "instructions": "Read https://status.example.com first. If it reports an incident, quote its title and start time. If the page does not load, wait one minute with sys.timer and try once more.",
+  "syscalls": [
+    {"syscall": "core.internet",
+     "capabilities": [{"methods": ["GET"], "domain": "status.example.com"}]}
+  ]
+}
