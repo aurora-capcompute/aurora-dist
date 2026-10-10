@@ -22,13 +22,7 @@ import (
 
 type Skill struct {
 	// Name is the file name without ".json".
-	Name         string
-	Description  string
-	Instructions string
-	Syscalls     []json.RawMessage
-}
-
-type file struct {
+	Name         string            `json:"-"`
 	Description  string            `json:"description"`
 	Instructions string            `json:"instructions"`
 	Syscalls     []json.RawMessage `json:"syscalls"`
@@ -55,16 +49,11 @@ func Load(dir string) ([]Skill, error) {
 		}
 		decoder := json.NewDecoder(bytes.NewReader(raw))
 		decoder.DisallowUnknownFields()
-		var decoded file
-		if err := decoder.Decode(&decoded); err != nil {
+		skill := Skill{Name: name}
+		if err := decoder.Decode(&skill); err != nil {
 			return nil, fmt.Errorf("decode skill %s: %w", name, err)
 		}
-		skills = append(skills, Skill{
-			Name:         name,
-			Description:  decoded.Description,
-			Instructions: decoded.Instructions,
-			Syscalls:     decoded.Syscalls,
-		})
+		skills = append(skills, skill)
 	}
 	return skills, nil
 }

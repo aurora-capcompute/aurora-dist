@@ -931,7 +931,6 @@ func TestScratchSurvivesAQuantumBoundary(t *testing.T) {
 			{Syscall: "core.openaiApi", Config: llmConfig, Hidden: true},
 			{Syscall: "core.internet", Config: internetConfig},
 			{Syscall: "core.scratch", Config: scratchConfig},
-			{Syscall: "sys.timer"},
 		},
 	}
 
