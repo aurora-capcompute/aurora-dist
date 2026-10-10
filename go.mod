@@ -3,9 +3,9 @@ module github.com/aurora-capcompute/aurora-dist
 go 1.26
 
 require (
-	github.com/aurora-capcompute/aurora-capcompute v0.0.0-20261006145843-10150f5aaa6d
-	github.com/aurora-capcompute/aurora-dispatchers v0.0.0-20261006145843-d94eb092a3b7
-	github.com/aurora-capcompute/capcompute v0.0.0-20260816220007-831820715f1b
+	github.com/aurora-capcompute/aurora-capcompute v0.0.0-20261010133720-2fd234cd664b
+	github.com/aurora-capcompute/aurora-dispatchers v0.0.0-20261010002021-0626912d93d8
+	github.com/aurora-capcompute/capcompute v0.0.0-20261010000800-a741b26e53c0
 	github.com/mattn/go-sqlite3 v1.14.49
 )
 
@@ -15,14 +15,9 @@ require (
 	github.com/extism/go-sdk v1.7.1 // indirect
 	github.com/gobwas/glob v0.2.3 // indirect
 	github.com/ianlancetaylor/demangle v0.0.0-20260724033716-83e58baca724 // indirect
-	github.com/openai/openai-go/v3 v3.49.0 // indirect
 	github.com/santhosh-tekuri/jsonschema/v6 v6.0.2 // indirect
 	github.com/tetratelabs/wabin v0.0.0-20230304001439-f6f874872834 // indirect
 	github.com/tetratelabs/wazero v1.12.0 // indirect
-	github.com/tidwall/gjson v1.19.0 // indirect
-	github.com/tidwall/match v1.2.0 // indirect
-	github.com/tidwall/pretty v1.2.1 // indirect
-	github.com/tidwall/sjson v1.2.5 // indirect
 	go.opentelemetry.io/proto/otlp v1.11.0 // indirect
 	golang.org/x/sys v0.47.0 // indirect
 	golang.org/x/text v0.40.0 // indirect
