@@ -1,8 +1,7 @@
-// Package dist assembles the Aurora distribution: the aurora-capcompute
-// runtime compiled together with a fixed driver set (internet, scratch,
-// httptemplate, command, openaillm), concrete stores (in-memory or
-// SQLite), and the programs directory loaded at boot. One binary, one HTTP API
-// in front (internal/api).
+// Package dist assembles the Aurora distribution: the aurora-capcompute runtime
+// with a fixed driver set (internet, scratch, httptemplate, command, openaillm),
+// a store (in memory, or SQLite), and the programs directory loaded at boot.
+// The api package serves it over HTTP.
 package dist
 
 import (
