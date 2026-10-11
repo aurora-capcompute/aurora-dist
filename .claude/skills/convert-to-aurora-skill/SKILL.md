@@ -103,8 +103,12 @@ args, env, params, timeout_ms, max_output_bytes, require_approval}`.
 - `path` and `dir` are absolute. There is no shell and no `PATH` lookup: to
   run `kubectl`, use its absolute path, not `bash -c`.
 - `args` is the full argument vector. `{name}` is a slot filled from `params`.
-- `params` maps a slot to a list (a closed set, preferred) or a regular
-  expression (anchored by the driver). A value can never start with `-`.
+- `params` maps a slot to a list (a closed set, preferred), a regular
+  expression (anchored by the driver), or `{"pattern": ..., "exclude": ...}`:
+  a pattern minus what `exclude` matches. Use `exclude` when the values are
+  open but a few must be refused, for example any Kubernetes resource but
+  secrets: `{"pattern": "[A-Za-z0-9][A-Za-z0-9.-]*", "exclude":
+  "(?i)secrets?(\\..*)?"}`. A value can never start with `-`.
 - `env` is the whole environment; nothing is inherited. Set `PATH` if the
   program needs it.
 - Approval is on by default. Set `"require_approval": false` only for a
