@@ -1203,10 +1203,10 @@ func TestCompactionKeepsTheInput(t *testing.T) {
 		body, _ := io.ReadAll(r.Body)
 		var reply string
 		switch {
-		case bytes.Contains(body, []byte("compress an AI agent's earlier working log")):
+		case bytes.Contains(body, []byte("compress the earlier work log of an AI agent")):
 			summarizerSawRule.Store(bytes.Contains(body, []byte(rule)))
 			reply = "The agent listed its notes several times."
-		case bytes.Contains(body, []byte("[Earlier steps, compacted")):
+		case bytes.Contains(body, []byte("[A summary of the earlier steps")):
 			compacted.Store(true)
 			keptRule.Store(bytes.Contains(body, []byte(rule)))
 			reply = `{"actions":[{"action":"final","content":{"answer":"done"}}]}`
@@ -1425,7 +1425,7 @@ func TestAgentSectionAbortRunsTheSectionAgain(t *testing.T) {
 func TestAgentCorrectsARejectedAnswer(t *testing.T) {
 	process := runAgent(t, `{"type":"object","required":["status"]}`, func(w http.ResponseWriter, r *http.Request) {
 		body, _ := io.ReadAll(r.Body)
-		if bytes.Contains(body, []byte("not accepted")) {
+		if bytes.Contains(body, []byte("did not accept your final answer")) {
 			chatReply(w, `{"actions":[{"action":"final","content":{"answer":"{\"status\":\"ok\"}"}}]}`)
 			return
 		}
