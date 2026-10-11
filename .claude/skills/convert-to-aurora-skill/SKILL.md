@@ -33,9 +33,9 @@ skill name: lowercase, words joined by `-`.
   not put secrets, credentials or internal hostnames there that the grants do
   not already name.
 - `syscalls` uses the grant shape below. Each syscall at most once per skill.
-- Never grant `sys.*`. The runtime gives every process `sys.timer`,
-  `sys.declassify` and the rest of the family. Name them in `instructions` if
-  the work needs them (for example, "wait one minute with `sys.timer`").
+- Never grant `sys.*`. The runtime gives every process `sys.timer` and the
+  rest of the family. Name them in `instructions` if the work needs them (for
+  example, "wait one minute with `sys.timer`").
 - Never grant `core.openaiApi`. The operator's LLM skill holds it.
 
 ## Workflow
@@ -71,7 +71,9 @@ human supplies the missing detail.
 ## Grant reference
 
 Every capability entry also accepts `labels` (source classes its results carry)
-and `taints` (labels that may not flow into it). Leave them out unless the
+and `taints` (labels whose data may flow into it only with a human's approval
+of the call). Labels are never lifted: once a run reads labeled data, each call
+that `taints` that label asks a human. Leave them out unless the
 source skill states a data-handling rule.
 
 **`core.internet`**: `capabilities[]` of `{methods, domain, description,

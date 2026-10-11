@@ -6,8 +6,8 @@ runtime with:
 
 - a fixed set of **drivers**: `core.internet`, `core.httpTemplate`,
   `core.command`, `core.scratch`, `core.openaiApi`, plus the runtime's
-  `sys.*` family (`sys.timer`, `sys.declassify` and the rest), which every
-  process gets with no grant.
+  `sys.*` family (`sys.timer` and the rest), which every process gets with no
+  grant.
 - a **store**: in memory, or SQLite for durability.
 - its **programs**, read from a directory at boot.
 
@@ -104,9 +104,8 @@ grants: the API refuses a create-process request that contains a manifest. To
 change what agents can do, change the skills and restart the server. A process
 keeps the manifest it started with, also after a restart.
 
-The runtime gives every process the `sys.*` family (`sys.timer`,
-`sys.declassify`, and the rest) with no grant. A skill may not grant a `sys.*`
-syscall.
+The runtime gives every process the `sys.*` family (`sys.timer` and the rest)
+with no grant. A skill may not grant a `sys.*` syscall.
 
 `skills/llm.json`:
 

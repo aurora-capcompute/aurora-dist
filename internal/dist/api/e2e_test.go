@@ -1385,7 +1385,7 @@ func TestSkillsAndSysToolsReachTheModel(t *testing.T) {
 		t.Fatalf("process = %s (%s)", process.Status, process.Error)
 	}
 	seen, _ := prompt.Load().(string)
-	for _, want := range []string{"Skill: duty", "Name the service you checked in every answer.", "Name: sys.timer", "Name: sys.declassify"} {
+	for _, want := range []string{"Skill: duty", "Name the service you checked in every answer.", "Name: sys.timer"} {
 		if !strings.Contains(seen, want) {
 			t.Fatalf("the model's request lacks %q:\n%s", want, seen)
 		}

